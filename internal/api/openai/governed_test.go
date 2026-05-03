@@ -105,7 +105,7 @@ func (a *testAdapter) Name() string { return "openai-compatible" }
 
 func (a *testAdapter) CompleteChat(ctx context.Context, req openaischema.ChatCompletionRequest, target providers.Target, key providers.ProviderKey) (*openaischema.ChatCompletionResponse, error) {
 	body, _ := json.Marshal(req)
-	httpReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, a.baseURL+"/chat/completions", bytesReader{data: body})
+	httpReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, a.baseURL+"/chat/completions", &bytesReader{data: body})
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+key.Value)
 	resp, err := a.client.Do(httpReq)
@@ -130,7 +130,7 @@ type bytesReader struct {
 	pos  int
 }
 
-func (r bytesReader) Read(p []byte) (n int, err error) {
+func (r *bytesReader) Read(p []byte) (n int, err error) {
 	if r.pos >= len(r.data) {
 		return 0, io.EOF
 	}
