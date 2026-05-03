@@ -1,0 +1,1070 @@
+openapi: 3.0.3
+
+info:
+  title: OpenLimit Admin API
+  description: >
+    Administrative API for managing projects, virtual keys, usage analytics,
+    audit logs, MCP tools, and RBAC users in the OpenLimit AI Gateway.
+  version: 1.0.0
+  contact:
+    name: OpenLimit
+    url: https://github.com/nicholasgriffintn/openlimit
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+security:
+  - BearerAuth: []
+
+paths:
+  /admin/projects:
+    post:
+      operationId: createProject
+      summary: Create a new project
+      description: Creates a tenant project. Keys are scoped to projects.
+      tags: [Projects]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProjectRequest"
+      responses:
+        "201":
+          description: Project created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden (insufficient role)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    get:
+      operationId: listProjects
+      summary: List all projects
+      description: Returns all projects ordered by name.
+      tags: [Projects]
+      responses:
+        "200":
+          description: List of projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Project"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/projects/{id}:
+    delete:
+      operationId: deleteProject
+      summary: Delete a project
+      description: >
+        Deletes a project by ID. Cascading delete removes all associated
+        virtual keys. Requires admin role.
+      tags: [Projects]
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Project deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+        "400":
+          description: Invalid project ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Project not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/keys:
+    post:
+      operationId: createKey
+      summary: Create a virtual key
+      description: >
+        Creates a gateway virtual key scoped to a project. The full key
+        (gw-... prefix) is returned only once in the response.
+      tags: [Keys]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateKeyRequest"
+      responses:
+        "201":
+          description: Key created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VirtualKey"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    get:
+      operationId: listKeys
+      summary: List virtual keys
+      description: Returns keys filtered by project_id query parameter.
+      tags: [Keys]
+      parameters:
+        - name: project_id
+          in: query
+          description: Filter keys by project ID
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of virtual keys
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/VirtualKey"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/keys/{id}:
+    delete:
+      operationId: revokeKey
+      summary: Revoke a virtual key
+      description: Marks a key as revoked. Revoked keys cannot authenticate.
+      tags: [Keys]
+      parameters:
+        - $ref: "#/components/parameters/KeyId"
+      responses:
+        "200":
+          description: Key revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revoked:
+                    type: boolean
+        "400":
+          description: Invalid key ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Key not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/usage:
+    get:
+      operationId: getUsage
+      summary: Query usage logs
+      description: >
+        Returns usage records with optional filters for project, key, model,
+        and date range.
+      tags: [Usage]
+      parameters:
+        - name: project_id
+          in: query
+          schema:
+            type: string
+        - name: key_id
+          in: query
+          schema:
+            type: string
+        - name: model
+          in: query
+          schema:
+            type: string
+        - name: from
+          in: query
+          description: Start timestamp (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          description: End timestamp (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          description: Max records to return (1-1000, default 100)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+      responses:
+        "200":
+          description: Usage records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UsageRecord"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/usage/summary:
+    get:
+      operationId: getUsageSummary
+      summary: Aggregated usage summary
+      description: Returns aggregated usage statistics grouped by period.
+      tags: [Usage]
+      parameters:
+        - name: period
+          in: query
+          description: Aggregation period
+          required: false
+          schema:
+            type: string
+            enum: [daily, monthly]
+            default: daily
+        - name: project_id
+          in: query
+          schema:
+            type: string
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Usage summary
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UsageSummary"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/audit:
+    get:
+      operationId: queryAuditLogs
+      summary: Query audit logs
+      description: >
+        Returns audit events with filters for event type, actor, resource,
+        and time range.
+      tags: [Audit]
+      parameters:
+        - name: event_type
+          in: query
+          schema:
+            type: string
+        - name: actor
+          in: query
+          schema:
+            type: string
+        - name: resource
+          in: query
+          schema:
+            type: string
+        - name: since
+          in: query
+          description: Start timestamp (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+      responses:
+        "200":
+          description: Audit events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AuditEvent"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/quickstart:
+    post:
+      operationId: quickstart
+      summary: Create a project and virtual key in one step
+      description: >
+        Creates a new project named "quickstart-{date}" and a virtual key
+        with optional rate limit and budget. Returns both the project and
+        the raw key value (shown only once).
+      tags: [Keys]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: Key name (defaults to "quickstart")
+                rpm_limit:
+                  type: integer
+                  description: Requests per minute limit
+                budget_limit_usd:
+                  type: number
+                  description: Monthly budget cap in USD
+      responses:
+        "201":
+          description: Project and key created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  project:
+                    $ref: "#/components/schemas/Project"
+                  key:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      key:
+                        type: string
+                        description: Raw key value (shown only once)
+                      key_prefix:
+                        type: string
+                      name:
+                        type: string
+                      rpm_limit:
+                        type: integer
+                      budget_limit_usd:
+                        type: number
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden (insufficient RBAC role)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/users:
+    post:
+      operationId: createUser
+      summary: Create an admin user
+      description: >
+        Creates an admin user with a specified role. Requires RBAC to be
+        enabled and admin role.
+      tags: [Users]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUserRequest"
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUser"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    get:
+      operationId: listUsers
+      summary: List admin users
+      description: Returns all non-deleted admin users.
+      tags: [Users]
+      responses:
+        "200":
+          description: List of admin users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminUser"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/users/{id}:
+    delete:
+      operationId: deleteUser
+      summary: Delete an admin user
+      description: Soft-deletes an admin user (preserves audit trail).
+      tags: [Users]
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "200":
+          description: User deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+        "400":
+          description: Invalid user ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/users/{id}/role:
+    put:
+      operationId: updateUserRole
+      summary: Update user role
+      description: Changes an admin user's role.
+      tags: [Users]
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRoleRequest"
+      responses:
+        "200":
+          description: Role updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  updated:
+                    type: boolean
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/tools:
+    get:
+      operationId: getMCPTools
+      summary: List MCP client tools and server status
+      description: >
+        Returns all discovered MCP client tools and the connection status
+        of configured MCP servers.
+      tags: [MCP]
+      parameters:
+        - name: server
+          in: query
+          description: Filter tools by MCP server name
+          schema:
+            type: string
+      responses:
+        "200":
+          description: MCP tools and server status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MCPToolsResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/mcp/tools:
+    get:
+      operationId: getMCPServerTools
+      summary: List MCP server exposed tools
+      description: >
+        Returns virtual keys exposed as MCP server tools. These are keys
+        with allow_mcp_server=true.
+      tags: [MCP]
+      responses:
+        "200":
+          description: MCP server tools
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MCPServerTool"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: >
+        Static admin bearer token or OIDC JWT access token.
+        Set via admin.bearer_token config or ADMIN_TOKEN env var.
+
+  parameters:
+    ProjectId:
+      name: id
+      in: path
+      required: true
+      description: Project ID
+      schema:
+        type: string
+    KeyId:
+      name: id
+      in: path
+      required: true
+      description: Virtual key ID
+      schema:
+        type: string
+    UserId:
+      name: id
+      in: path
+      required: true
+      description: Admin user ID
+      schema:
+        type: string
+
+  schemas:
+    Project:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Unique project identifier
+        name:
+          type: string
+          description: Project display name
+        created_at:
+          type: string
+          format: date-time
+          description: Creation timestamp
+      required: [id, name, created_at]
+
+    CreateProjectRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Project display name
+      required: [name]
+
+    VirtualKey:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Unique key identifier
+        key:
+          type: string
+          description: >
+            Full virtual key (gw-... prefix). Only present in the
+            create response; never returned again.
+        key_prefix:
+          type: string
+          description: First 8 characters of the key for identification
+        project_id:
+          type: string
+          description: Parent project ID
+        name:
+          type: string
+          description: Key display name
+        allowed_models:
+          type: array
+          items:
+            type: string
+          description: Glob patterns for allowed models (e.g. ["gpt-4*"])
+        allowed_providers:
+          type: array
+          items:
+            type: string
+          description: Allowed provider names
+        allowed_tools:
+          type: array
+          items:
+            type: string
+          description: Glob patterns for allowed MCP tools (e.g. ["weather.*"])
+        rpm_limit:
+          type: integer
+          description: Requests per minute limit (0 = unlimited)
+        tpm_limit:
+          type: integer
+          description: Tokens per minute limit (0 = unlimited)
+        budget_limit_usd:
+          type: number
+          format: double
+          description: Spend cap in USD
+        budget_period:
+          type: string
+          enum: [daily, monthly]
+          description: Budget reset period
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Key expiration time
+        revoked_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Key revocation time
+        created_at:
+          type: string
+          format: date-time
+        allow_mcp_server:
+          type: boolean
+          description: Whether key is exposed as MCP server tool
+        mcp_tool_name:
+          type: string
+          description: Custom MCP tool name override
+      required: [id, key_prefix, project_id, name, created_at]
+
+    CreateKeyRequest:
+      type: object
+      properties:
+        project_id:
+          type: string
+          description: Parent project ID
+        name:
+          type: string
+          description: Key display name
+        allowed_models:
+          type: array
+          items:
+            type: string
+          description: Glob patterns for allowed models
+        allowed_providers:
+          type: array
+          items:
+            type: string
+        allowed_tools:
+          type: array
+          items:
+            type: string
+        rpm_limit:
+          type: integer
+          default: 0
+        tpm_limit:
+          type: integer
+          default: 0
+        budget_limit_usd:
+          type: number
+          format: double
+          default: 0
+        budget_period:
+          type: string
+          enum: [daily, monthly]
+          default: monthly
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        allow_mcp_server:
+          type: boolean
+          default: false
+        mcp_tool_name:
+          type: string
+      required: [project_id, name]
+
+    UsageRecord:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        key_id:
+          type: string
+        model:
+          type: string
+        provider:
+          type: string
+        prompt_tokens:
+          type: integer
+        completion_tokens:
+          type: integer
+        cost_usd:
+          type: number
+          format: double
+        stream:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+      required: [id, project_id, model, created_at]
+
+    UsageSummary:
+      type: object
+      properties:
+        period:
+          type: string
+          description: Aggregation period label (e.g. "2025-01-15")
+        total_requests:
+          type: integer
+        total_prompt_tokens:
+          type: integer
+        total_completion_tokens:
+          type: integer
+        total_cost_usd:
+          type: number
+          format: double
+
+    AuditEvent:
+      type: object
+      properties:
+        id:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        event_type:
+          type: string
+          description: Event category (e.g. project.create, key.revoke)
+        actor:
+          type: string
+          description: Who performed the action
+        action:
+          type: string
+          description: What was done
+        resource:
+          type: string
+          description: What was affected
+        outcome:
+          type: string
+          enum: [success, denied, error]
+        request_id:
+          type: string
+          description: Correlation ID
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Free-form event details
+      required: [id, timestamp, event_type, outcome]
+
+    AdminUser:
+      type: object
+      properties:
+        id:
+          type: string
+        subject:
+          type: string
+          description: OIDC subject claim
+        email:
+          type: string
+          description: User email address
+        role:
+          type: string
+          enum: [admin, editor, viewer]
+        created_at:
+          type: string
+          format: date-time
+        deleted_at:
+          type: string
+          format: date-time
+          nullable: true
+      required: [id, role, created_at]
+
+    CreateUserRequest:
+      type: object
+      properties:
+        subject:
+          type: string
+          description: OIDC subject claim
+        email:
+          type: string
+        role:
+          type: string
+          enum: [admin, editor, viewer]
+      required: [role]
+
+    UpdateRoleRequest:
+      type: object
+      properties:
+        role:
+          type: string
+          enum: [admin, editor, viewer]
+      required: [role]
+
+    MCPToolsResponse:
+      type: object
+      properties:
+        servers:
+          type: array
+          items:
+            $ref: "#/components/schemas/MCPServerStatus"
+        tools:
+          type: array
+          items:
+            $ref: "#/components/schemas/MCPTool"
+
+    MCPServerStatus:
+      type: object
+      properties:
+        name:
+          type: string
+        url:
+          type: string
+        status:
+          type: string
+          description: Connection status (e.g. connected, disconnected)
+        tool_count:
+          type: integer
+
+    MCPTool:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        server:
+          type: string
+
+    MCPServerTool:
+      type: object
+      properties:
+        tool_name:
+          type: string
+        key_id:
+          type: string
+        key_name:
+          type: string
+        allowed_models:
+          type: array
+          items:
+            type: string
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            message:
+              type: string
+              description: Human-readable error message
+            type:
+              type: string
+              description: >
+                Error type identifier. Common values:
+                invalid_request, unauthorized, forbidden, not_found,
+                rate_limit_exceeded, budget_exceeded, guardrail_block,
+                model_not_found, model_not_allowed, provider_error,
+                residency_denied, auth_error, tool_merge_error,
+                mcp_error, streaming_unsupported, method_not_allowed
+            code:
+              type: string
+              description: Optional error code for programmatic handling
+            details:
+              type: object
+              additionalProperties: true
+              description: Optional structured error details
+            stage:
+              type: string
+              description: >
+                Pipeline stage where the error occurred (e.g. pii, regex,
+                keyword, webhook, json_schema). Present for guardrail errors.
+            request_id:
+              type: string
+              description: Correlation request ID
+          required: [message, type]
+      required: [error]
+
+tags:
+  - name: Projects
+    description: Project (tenant) management
+  - name: Keys
+    description: Virtual API key management
+  - name: Usage
+    description: Usage analytics and summaries
+  - name: Audit
+    description: Audit log queries
+  - name: Users
+    description: Admin user and RBAC management
+  - name: MCP
+    description: MCP client and server tool management

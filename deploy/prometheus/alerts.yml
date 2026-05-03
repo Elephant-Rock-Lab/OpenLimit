@@ -1,0 +1,88 @@
+groups:
+  - name: openlimit_recording
+    rules:
+      - record: gateway:request_rate:5m
+        expr: sum(rate(gateway_requests_total[5m]))
+
+      - record: gateway:error_rate:5m
+        expr: |
+          sum(rate(gateway_requests_total{status=~"5.."}[5m]))
+          /
+          sum(rate(gateway_requests_total[5m]))
+
+      - record: gateway:latency_p99:5m
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(gateway_request_duration_seconds_bucket[5m])) by (le)
+          )
+
+      - record: gateway:latency_p90:5m
+        expr: |
+          histogram_quantile(0.90,
+            sum(rate(gateway_request_duration_seconds_bucket[5m])) by (le)
+          )
+
+      - record: gateway:latency_p50:5m
+        expr: |
+          histogram_quantile(0.50,
+            sum(rate(gateway_request_duration_seconds_bucket[5m])) by (le)
+          )
+
+      - record: gateway:cost_rate:5m
+        expr: sum(rate(gateway_cost_dollars_total[5m]))
+
+      - record: gateway:cache_hit_rate:5m
+        expr: |
+          sum(rate(gateway_cache_hits_total[5m]))
+          /
+          (sum(rate(gateway_cache_hits_total[5m])) + sum(rate(gateway_cache_misses_total[5m])))
+
+      - record: gateway:token_rate:5m
+        expr: sum(rate(gateway_tokens_total[5m]))
+
+  - name: openlimit_alerts
+    rules:
+      - alert: HighErrorRate
+        expr: gateway:error_rate:5m > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Gateway error rate above 5%"
+          description: "Error rate is {{ $value | humanizePercentage }} over the last 5 minutes."
+
+      - alert: HighLatencyP99
+        expr: gateway:latency_p99:5m > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Gateway p99 latency above 5s"
+          description: "p99 latency is {{ $value }}s over the last 5 minutes."
+
+      - alert: CostSpike
+        expr: derivative(gateway:cost_rate:5m[1h]) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Gateway cost rate increasing rapidly"
+          description: "Cost rate derivative is {{ $value }} over the last 10 minutes."
+
+      - alert: HighRateLimitRejections
+        expr: sum(rate(gateway_rate_limit_rejections_total[5m])) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High rate of rate limit rejections"
+          description: "{{ $value }} rejections/sec over the last 5 minutes."
+
+      - alert: ProviderErrors
+        expr: sum by (provider) (rate(gateway_provider_errors_total[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Provider {{ $labels.provider }} returning errors"
+          description: "{{ $value }} errors/sec from provider {{ $labels.provider }}."
