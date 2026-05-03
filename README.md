@@ -43,9 +43,13 @@ For the full walkthrough (Docker Compose, Postgres, guardrails), see [Getting St
 
 | Feature | What it does | Why it matters |
 |---|---|---|
-| **Multi-provider routing** | OpenAI, Anthropic, Gemini, Azure OpenAI, and any OpenAI-compatible endpoint (Ollama, vLLM). Weighted routing with fallbacks. | Avoid vendor lock-in. Route to the cheapest or fastest provider. |
+| **Multi-provider routing** | OpenAI, Anthropic, Gemini, Azure OpenAI, AWS Bedrock, Google Vertex, Groq, Cohere, Mistral, and any OpenAI-compatible endpoint (Ollama, vLLM). Weighted routing with fallbacks. | Avoid vendor lock-in. Route to the cheapest or fastest provider. |
 | **Agent-native protocols** | MCP client (tool discovery + merge), MCP server mode (expose keys as tools), A2A 1.0 (agent-to-agent tasks with SSE streaming). | First-class support for AI agents, not just chat completions. |
 | **Governance** | Virtual API keys, per-key RPM/TPM rate limits, daily/monthly budgets, project-based multi-tenancy, per-key model restrictions. | Control who can use what, how much, and how often. |
+| **Admin dashboard** | Built-in SPA at `/admin/ui` with dark theme. Overview, key management, usage analytics, provider health, request log. Zero external dependencies. | Monitor and manage your gateway from a browser. |
+| **Config hot-reload** | Change `gateway.yaml` and the gateway picks it up without restart. SIGHUP support. Safe fields only (routing, guardrails, rate limits). | Update routing rules and guardrails with zero downtime. |
+| **Prompt management** | Versioned prompt templates with CRUD API. Store in Postgres, inject via request header. | Centralize and version your prompt library. |
+| **Enterprise security** | Webhook guardrail mTLS, Redis Cluster support, AWS KMS, HashiCorp Vault KMS, data residency filtering. | Meet enterprise security and compliance requirements. |
 | **Observability** | 30+ Prometheus metrics, OpenTelemetry tracing, Grafana dashboard, structured logging. Every response includes `X-Request-ID`. | Know exactly what's happening across every provider, key, and model. |
 | **Deployment-ready** | Docker Compose (with profiles for Redis, monitoring), Helm chart with HPA and ServiceMonitor, production security defaults. | Deploy the same way in dev and prod. |
 | **Open source** | MIT licensed. No vendor tie-in. Runs on your infrastructure. Data stays in your VPC. | Full control, full transparency. |
@@ -57,31 +61,31 @@ For the full walkthrough (Docker Compose, Postgres, guardrails), see [Getting St
 ```
 cmd/gateway/main.go          # Entrypoint
 internal/
-  admin/                      # Admin API handlers
-  api/openai/                 # OpenAI-compatible endpoints
+  admin/                      # Admin API handlers + dashboard SPA (embed.FS)
+  api/openai/                 # OpenAI-compatible endpoints (/v1/chat/completions, /v1/embeddings)
   auth/                       # Virtual key auth middleware
   billing/                    # Price table and cost calculation
   cache/                      # Exact LRU cache + Redis cache + TieredCache
   cache/semantic/             # Semantic cache (embeddings + pgvector)
   circuit/                    # Provider circuit breakers (local + Redis)
-  config/                     # Config loading and validation
-  guardrails/                 # Content safety pipeline and stages
-  mcp/                        # MCP client, server mode, registry, executor, tool merge, A2A
-  health/                     # /health and /ready handlers
+  config/                     # Config loading, validation, and hot-reload watcher
+  guardrails/                 # Content safety pipeline, stages, and webhook mTLS
+  health/                     # /health, /ready, and admin health endpoints
   kms/                        # Key management (static KMS, AWS KMS, Vault KMS, AES-256-GCM)
   lifecycle/                  # In-flight request tracking
   logging/                    # Structured slog setup
+  mcp/                        # MCP client, server mode, registry, executor, tool merge, A2A with Redis bridge
   metrics/                    # Prometheus metrics collector
   oidc/                       # OpenID Connect SSO (JWT validation, user lookup)
-  migrate/                    # Database migration runner
-  providers/                  # Provider adapters (OpenAI, Anthropic, Gemini, Azure OpenAI)
-  redis/                      # Redis client with health check and graceful degradation
+  migrate/                    # Database migration runner (8 migrations)
+  providers/                  # 10 provider adapters (OpenAI, Anthropic, Gemini, Azure, Bedrock, Vertex, Groq, Cohere, Mistral + openai-compatible)
+  redis/                      # Redis client (standalone + cluster) with health check
   ratelimit/                  # Token bucket + Redis sliding window rate limiter
   requestid/                  # Request ID context
   routing/                    # Model routing, fallbacks, and region-aware routing
   schema/openai/              # OpenAI-compatible request/response types
   server/                     # HTTP server setup and middleware
-  store/                      # Postgres data access layer
+  store/                      # Postgres data access (projects, keys, prompts, RBAC)
   tracing/                    # OpenTelemetry tracing
   usage/                      # Async usage log writer
   pkg/version/                # Version info
@@ -106,13 +110,13 @@ configs/                      # YAML configuration files
 6. **Streaming skips MCP tool interception** — Tool calls in streaming responses pass through to the client for execution.
 7. **MCP HTTP transport only** — No stdio transport support. Use `supergateway` or similar to bridge stdio servers.
 8. **Parallel tool execution** — Multiple tool calls within one round are executed concurrently. Stateful MCP servers may have issues.
-9. **A2A SSE is single-instance** — For multi-instance, clients should poll `tasks/get`.
+9. ~~**A2A SSE is single-instance**~~ — Resolved in v1.1.0 via Redis Pub/Sub bridge.
 10. **A2A push notifications are best-effort** — 3 retries with backoff, then give up. No dead-letter queue.
 11. **RBAC role changes take effect on next request** — Roles are looked up from the DB on each request, not cached in JWT.
-12. **No Redis Cluster** — Single-node Redis or Redis Sentinel. Cluster support planned for v1.1.
+12. ~~**No Redis Cluster**~~ — Resolved in v1.1.0. Set `redis.cluster: true` in config.
 13. **Latency routing strategy requires Prometheus** — Without metrics enabled, falls back to priority ordering.
 14. **Single OIDC issuer** — One IdP per gateway instance. Multi-tenant OIDC is not supported.
-15. **Streaming skips cache and output guardrails** — Streaming requests run rate limiting, budget checks, and input guardrails pre-stream, plus usage logging and metrics post-stream. However, cache lookup/store and output guardrails are not applied to streaming requests.
+15. **Streaming skips cache and output guardrails** — Streaming requests run rate limiting, budget checks, and input guardrails pre-stream, plus usage logging and metrics post-stream. Cache lookup/store and output guardrails are not applied to streaming requests.
 16. **A2A has no per-key governance** — A2A requests use gateway-level auth (bearer token). Rate limits, budgets, and per-key model restrictions are not enforced on A2A entry.
 
 ---

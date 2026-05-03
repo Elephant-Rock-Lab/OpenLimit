@@ -3,6 +3,8 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile
+      args:
+        VERSION: "${VERSION:-dev}"
     ports:
       - "8080:8080"
     environment:
@@ -17,13 +19,14 @@ services:
 
   ollama:
     image: ollama/ollama:latest
+    profiles: ["local"]
     ports:
       - "11434:11434"
     volumes:
       - ollama:/root/.ollama
 
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: openlimit
       POSTGRES_PASSWORD: openlimit
@@ -43,6 +46,21 @@ services:
     profiles: ["stateful"]
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis-cluster:
+    image: redis/redis-stack-server:latest
+    profiles: ["cluster"]
+    ports:
+      - "6379:6379"
+      - "16379:16379"
+    environment:
+      REDIS_CLUSTER: "yes"
+      REDIS_CLUSTER_ANNOUNCE_IP: "127.0.0.1"
 
   prometheus:
     image: prom/prometheus:latest

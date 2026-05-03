@@ -1,9 +1,13 @@
+# Build stage with version injection
 FROM golang:1.25-alpine AS builder
+ARG VERSION=dev
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -o /out/openlimit-gateway ./cmd/gateway
+RUN CGO_ENABLED=0 go build \
+  -ldflags="-s -w -X openlimit/pkg/version.Version=${VERSION}" \
+  -o /out/openlimit-gateway ./cmd/gateway
 
 FROM alpine:3.20
 RUN adduser -D -H openlimit
