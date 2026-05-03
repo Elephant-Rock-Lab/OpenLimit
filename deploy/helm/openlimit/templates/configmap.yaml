@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "openlimit.fullname" . }}-config
+  labels:
+    {{- include "openlimit.labels" . | nindent 4 }}
+data:
+  gateway.yaml: |
+    {{- .Values.config.gateway | nindent 4 }}

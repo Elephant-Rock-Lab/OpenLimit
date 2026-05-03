@@ -1,0 +1,18 @@
+{
+  "id": "ws_7684c0a7",
+  "name": "OpenLimit",
+  "slug": "openlimit",
+  "defaults": {
+    "permissionMode": "safe",
+    "cyclablePermissionModes": [
+      "safe",
+      "allow-all"
+    ],
+    "enabledSourceSlugs": []
+  },
+  "localMcpServers": {
+    "enabled": true
+  },
+  "createdAt": 1777415261896,
+  "updatedAt": 1777415261897
+}

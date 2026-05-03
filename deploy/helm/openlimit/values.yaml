@@ -1,0 +1,156 @@
+# -- Number of gateway replicas
+replicaCount: 1
+
+image:
+  repository: openlimit/gateway
+  pullPolicy: IfNotPresent
+  # -- Overrides the image tag (defaults to .Chart.AppVersion)
+  tag: ""
+
+# -- Gateway configuration as raw YAML string.
+# This is the complete gateway.yaml content. See configs/gateway.example.yaml for all options.
+# Alternatively, use --set-file config.gateway=path/to/gateway.yaml
+config:
+  gateway: |
+    server:
+      host: "0.0.0.0"
+      port: 8080
+    logging:
+      level: info
+      format: json
+    telemetry:
+      metrics:
+        enabled: true
+
+# -- Secrets — NOT for production use.
+# In production, use --set or External Secrets Operator.
+# All values can also be set via environment variables directly.
+secrets:
+  databaseUrl: ""
+  adminBearerToken: ""
+  openaiApiKey: ""
+  anthropicApiKey: ""
+  kmsStaticKey: ""
+  vaultToken: ""
+
+# -- Use an existing Secret instead of creating one.
+# The Secret must contain keys: database-url, admin-bearer-token, openai-api-key, etc.
+existingSecret: ""
+
+# -- Resources
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+
+# -- Autoscaling (requires metrics-server or prometheus-adapter)
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  # targetMemoryUtilizationPercentage: 80
+  # -- Custom metrics for HPA (requires prometheus-adapter)
+  # See README for prometheus-adapter rules configuration.
+  # customMetrics:
+  #   - type: Pods
+  #     pods:
+  #       metric:
+  #         name: gateway_requests_per_second
+  #       target:
+  #         type: AverageValue
+  #         averageValue: "100"
+
+# -- Service configuration
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+
+# -- Ingress configuration
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  #  kubernetes.io/ingress.class: nginx
+  #  cert-manager.io/cluster-issuer: letsencrypt
+  hosts: []
+  #  - host: gateway.example.com
+  #    paths:
+  #      - path: /
+  tls: []
+  #  - secretName: gateway-tls
+  #    hosts:
+  #      - gateway.example.com
+
+# -- Liveness probe
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+# -- Readiness probe (checks DB, Redis, OIDC, KMS health)
+readinessProbe:
+  httpGet:
+    path: /ready
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 5
+
+# -- ServiceAccount
+serviceAccount:
+  create: true
+  annotations: {}
+  # -- If not set, a name is generated using the fullname template
+  name: ""
+
+# -- Pod annotations (useful for vault-agent injection, etc.)
+podAnnotations: {}
+
+# -- Pod security context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+
+# -- Container security context
+securityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+
+# -- Node selector
+nodeSelector: {}
+
+# -- Tolerations
+tolerations: []
+
+# -- Affinity
+affinity: {}
+
+# -- Migration init container
+migration:
+  enabled: true
+  backoffLimit: 3
+
+# -- Prometheus ServiceMonitor (requires prometheus-operator)
+serviceMonitor:
+  enabled: false
+  interval: 15s
+  path: /metrics
+  labels: {}
+  #  release: prometheus
+
+# -- Extra environment variables
+extraEnv: []
+#  - name: MY_VAR
+#    value: "my-value"
+
+# -- Extra volume mounts
+extraVolumeMounts: []
+
+# -- Extra volumes
+extraVolumes: []

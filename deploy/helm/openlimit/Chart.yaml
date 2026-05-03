@@ -1,0 +1,17 @@
+apiVersion: v2
+name: openlimit
+description: OpenLimit AI Gateway — unified proxy for LLM providers with governance, observability, and agent-native features
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - ai
+  - gateway
+  - llm
+  - proxy
+  - openai
+home: https://github.com/nicholasgasior/openlimit
+sources:
+  - https://github.com/nicholasgasior/openlimit
+maintainers:
+  - name: OpenLimit

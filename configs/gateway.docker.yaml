@@ -1,0 +1,81 @@
+server:
+  host: 0.0.0.0
+  port: 8080
+  read_timeout_ms: 15000
+  write_timeout_ms: 15000
+  idle_timeout_ms: 60000
+
+database:
+  url: postgres://openlimit:openlimit@postgres:5432/openlimit?sslmode=disable
+
+logging:
+  level: info
+  format: json
+  add_source: false
+  redact_prompts: true
+
+cache:
+  exact:
+    enabled: true
+    max_entries: 10000
+    ttl_seconds: 3600
+
+routing:
+  defaults:
+    timeout_ms: 60000
+    retry:
+      attempts: 3
+      backoff: exponential
+      initial_ms: 250
+      max_ms: 4000
+      retry_on:
+        - rate_limit
+        - timeout
+        - server_error
+
+providers:
+  openai:
+    type: openai
+    keys:
+      - id: openai-primary
+        env: OPENAI_API_KEY
+        weight: 100
+
+  anthropic:
+    type: anthropic
+    keys:
+      - id: anthropic-primary
+        env: ANTHROPIC_API_KEY
+        weight: 100
+
+  ollama:
+    type: openai-compatible
+    base_url: http://ollama:11434/v1
+    keys:
+      - id: local
+        value: dummy
+        weight: 100
+
+models:
+  fast:
+    routes:
+      - provider: openai
+        model: gpt-4o-mini
+        weight: 100
+    fallbacks:
+      - provider: anthropic
+        model: claude-3-5-haiku-latest
+      - provider: ollama
+        model: llama3.1
+
+  claude:
+    routes:
+      - provider: anthropic
+        model: claude-3-5-haiku-latest
+        weight: 100
+
+  local:
+    routes:
+      - provider: ollama
+        model: llama3.1
+        weight: 100

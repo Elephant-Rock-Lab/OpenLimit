@@ -1,0 +1,282 @@
+server:
+  host: 0.0.0.0
+  port: 8080
+  read_timeout_ms: 15000
+  write_timeout_ms: 15000
+  idle_timeout_ms: 60000
+
+database:
+  url: postgres://openlimit:openlimit@localhost:5432/openlimit?sslmode=disable
+  max_open_conns: 25
+  max_idle_conns: 5
+
+# Redis for shared state (rate limits, cache, circuit breakers)
+# When disabled, all state is local to this instance.
+redis:
+  enabled: false
+  addr: localhost:6379
+  # password: ""
+  # db: 0
+  # max_retries: 3
+  # pool_size: 20
+  # health_check_interval_seconds: 10
+
+# KMS for provider key encryption at rest
+# When enabled, provider keys can use encrypted_value instead of plaintext.
+kms:
+  enabled: false
+  type: static    # "static" (env var KMS_STATIC_KEY), "aws-kms", or "vault"
+  # key_id: ""    # KMS key ID (required for aws-kms) or Vault secret path (e.g., "secret/data/openlimit-dek")
+  # vault:
+  #   addr: "https://vault.example.com:8200"
+  #   token: ""  # or set VAULT_TOKEN env var
+  #   namespace: ""
+  #   tls_skip_verify: false
+
+auth:
+  enabled: false
+  key_cache_size: 10000
+  key_cache_ttl_seconds: 60
+
+admin:
+  enabled: false
+  bearer_token: ""  # or set via ADMIN_TOKEN env var
+  rbac_enabled: false  # enable RBAC for multi-user admin access
+  oidc:
+    enabled: false
+    issuer: ""         # e.g., "https://dev-xxx.okta.com/oauth2/default"
+    audience: ""       # e.g., "openlimit-admin"
+    default_role: "viewer"  # role assigned to new OIDC users
+    # jwks_cache_ttl_seconds: 3600
+
+billing:
+  prices:
+    - provider: openai
+      model: gpt-4o-mini
+      prompt_per_1m: 0.15
+      completion_per_1m: 0.60
+    - provider: openai
+      model: gpt-4o
+      prompt_per_1m: 2.50
+      completion_per_1m: 10.00
+    - provider: anthropic
+      model: claude-3-5-haiku-latest
+      prompt_per_1m: 0.80
+      completion_per_1m: 4.00
+
+telemetry:
+  metrics:
+    enabled: true
+  tracing:
+    enabled: false
+    endpoint: "localhost:4317"      # OTLP gRPC endpoint (Jaeger, Tempo, etc.)
+    service_name: "openlimit"
+    sample_rate: 0.1               # 10% of traces sampled
+
+logging:
+  level: info
+  format: json
+  add_source: false
+  redact_prompts: true
+
+cache:
+  exact:
+    enabled: true
+    max_entries: 10000
+    ttl_seconds: 3600
+  semantic:
+    enabled: false
+    embedder:
+      type: "ollama"                     # "ollama" or "openai"
+      base_url: "http://localhost:11434"
+      model: "nomic-embed-text"
+      api_key: ""
+      dimensions: 768
+    similarity_threshold: 0.92         # cosine similarity (0–1)
+    max_entries: 10000
+    ttl_seconds: 3600
+    embedding_cache:
+      max_entries: 5000
+      ttl_seconds: 3600
+
+guardrails:
+  enabled: false
+  input:
+    - type: pii
+      config:
+        types: [credit_card, ssn, email]
+        action: redact
+    - type: keyword
+      config:
+        blocklist: ["ignore previous instructions", "system prompt"]
+        action: block
+        block_message: "request contains blocked content"
+  output:
+    - type: webhook
+      config:
+        url: "http://localhost:8888/moderate"
+        timeout_ms: 250
+        block_on_error: true
+        block_on_timeout: true
+  models:
+    fast:
+      input: true
+      output: true
+    claude:
+      input: true
+      output: false
+
+mcp:
+  enabled: false
+  max_tool_rounds: 5              # max agent loop rounds (default: 5)
+  tool_timeout_ms: 10000          # per-tool execution timeout
+  max_total_duration_seconds: 120  # cumulative timeout for multi-round execution
+  max_result_bytes: 1048576       # truncate tool_logs result beyond 1MB
+  auto_inject_tools: false        # inject MCP tools even when request has no tools
+  tool_conflict_strategy: "skip"  # "skip" (drop MCP tool) or "error" on name collision
+  servers:
+    - name: weather
+      url: "http://localhost:3001/mcp"
+      tool_prefix: "weather"
+      timeout_ms: 5000
+    - name: github
+      url: "http://localhost:3002/mcp"
+      headers:
+        Authorization: "Bearer ghp_xxx"
+      tool_prefix: "github"
+      timeout_ms: 10000
+
+# A2A server mode (Agent-to-Agent protocol v1.0)
+# Allows external agents to discover and interact with the gateway.
+a2a:
+  enabled: false
+  endpoint: "/a2a"                     # path on main server, or ":8082" for separate port
+  url: "http://localhost:8080"         # public URL for agent card
+  authentication:
+    mode: "none"                       # "none" or "bearer_token"
+    bearer_token: ""
+  default_model: "gpt-4o-mini"         # model used for A2A messages (required)
+  blocking_mode: false                # false = return immediately, true = block until complete
+  max_workers: 10                     # concurrent background task executors
+  task_ttl_seconds: 3600              # in-memory task lifetime (unused with Postgres store)
+  max_tasks: 10000                    # max concurrent tasks (in-memory only)
+  agent_card:
+    name: "OpenLimit Gateway"
+    version: "1.0.0"
+    description: "AI Gateway with A2A support"
+
+routing:
+  defaults:
+    timeout_ms: 60000
+    retry:
+      attempts: 3
+      backoff: exponential
+      initial_ms: 250
+      max_ms: 4000
+      retry_on:
+        - rate_limit
+        - timeout
+        - server_error
+  # Region-aware routing (optional)
+  # region: us-east                     # gateway's own region for local preference
+  # region_strategy: priority            # "priority" (default) or "latency"
+
+providers:
+  openai:
+    type: openai
+    keys:
+      - id: openai-primary
+        env: OPENAI_API_KEY
+        weight: 100
+    # Optional: region endpoints for region-aware routing
+    # regions:
+    #   - name: us-east
+    #     base_url: https://api.openai.com/v1
+    #     priority: 1
+    #   - name: eu-west
+    #     base_url: https://eu.api.openai.com/v1
+    #     priority: 2
+    #     data_residency: eu
+
+  anthropic:
+    type: anthropic
+    keys:
+      - id: anthropic-primary
+        env: ANTHROPIC_API_KEY
+        weight: 100
+
+  ollama:
+    type: openai-compatible
+    base_url: http://localhost:11434/v1
+    keys:
+      - id: local
+        value: dummy
+        weight: 100
+
+  # ── AWS Bedrock ───────────────────────────────────────────────────────
+  # bedrock:
+  #   type: bedrock
+  #   region: us-east-1
+  #   keys:
+  #     - id: bedrock-primary
+  #       env: AWS_ACCESS_KEY_ID
+  #       secret_env: AWS_SECRET_ACCESS_KEY  # read from env for Sigv4 signing
+  #       weight: 100
+
+  # ── Google Vertex AI ───────────────────────────────────────────────────
+  # vertex:
+  #   type: vertex
+  #   project_id: my-gcp-project
+  #   region: us-central1
+  #   keys:
+  #     - id: vertex-primary
+  #       env: GOOGLE_ACCESS_TOKEN  # OAuth2 access token
+  #       weight: 100
+
+  # ── Groq ───────────────────────────────────────────────────────────────
+  # groq:
+  #   type: groq
+  #   keys:
+  #     - id: groq-primary
+  #       env: GROQ_API_KEY
+  #       weight: 100
+
+  # ── Cohere ─────────────────────────────────────────────────────────────
+  # cohere:
+  #   type: cohere
+  #   keys:
+  #     - id: cohere-primary
+  #       env: COHERE_API_KEY
+  #       weight: 100
+
+  # ── Mistral ────────────────────────────────────────────────────────────
+  # mistral:
+  #   type: mistral
+  #   keys:
+  #     - id: mistral-primary
+  #       env: MISTRAL_API_KEY
+  #       weight: 100
+
+models:
+  fast:
+    routes:
+      - provider: openai
+        model: gpt-4o-mini
+        weight: 100
+    fallbacks:
+      - provider: anthropic
+        model: claude-3-5-haiku-latest
+      - provider: ollama
+        model: llama3.1
+
+  claude:
+    routes:
+      - provider: anthropic
+        model: claude-3-5-haiku-latest
+        weight: 100
+
+  local:
+    routes:
+      - provider: ollama
+        model: llama3.1
+        weight: 100

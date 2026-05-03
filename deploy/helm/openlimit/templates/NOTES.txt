@@ -1,0 +1,28 @@
+OpenLimit AI Gateway has been deployed!
+
+Get the gateway URL:
+  export POD_NAME=$(kubectl get pods -l "{{- include "openlimit.selectorLabels" . }}" -o jsonpath="{.items[0].metadata.name}")
+  kubectl port-forward "$POD_NAME" {{ .Values.service.port }}:8080
+
+Then visit:
+  http://localhost:{{ .Values.service.port }}/health
+
+{{- if .Values.ingress.enabled }}
+
+Ingress is enabled. The gateway is available at:
+{{- range .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+{{- end }}
+
+To create your first project and virtual key:
+  curl -X POST http://localhost:{{ .Values.service.port }}/admin/projects \
+    -H "Authorization: Bearer $ADMIN_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"name":"my-project"}'
+
+{{- if not .Values.migration.enabled }}
+
+WARNING: Database migrations are disabled. Ensure migrations have been run
+manually before starting the gateway.
+{{- end }}
