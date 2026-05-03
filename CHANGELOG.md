@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.1.0] - 2026-05-03
 
+### Fixed
+- bytesReader test helper had value receiver on Read(), causing infinite loop
+  in io.ReadAll — changed to pointer receiver
+- All 5 embeddings handler tests now pass in default test run
+  (previously timed out due to the bytesReader bug)
+
 ### Added
 - Multi-instance A2A SSE streaming via Redis Pub/Sub (RedisTaskBridge)
 - TaskBridgePublisher interface for cross-instance task notification
