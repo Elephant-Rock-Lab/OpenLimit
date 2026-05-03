@@ -17,14 +17,15 @@ OpenLimit is an AI gateway written in Go, inspired by Bifrost, Agentgateway, Lit
 
 | Metric | Value |
 |---|---|
-| Total Go source files | 125 |
-| Production LOC | ~14,560 |
-| Test LOC | ~8,090 |
-| Total tests | 272 |
-| Test packages | 18 (all passing) |
-| Migrations | 7 |
+| Total Go source files | 164 |
+| Production LOC | ~19,672 |
+| Test LOC | ~14,190 |
+| Total tests | 379 |
+| Test packages | 30 (all passing) |
+| Migrations | 8 |
 | Dependencies | 12 direct |
-| Internal packages | 27 |
+| Internal packages | 29 |
+| Git tag | v1.1.0 |
 
 ### Phases Completed
 
@@ -43,6 +44,18 @@ OpenLimit is an AI gateway written in Go, inspired by Bifrost, Agentgateway, Lit
 | 6D | Kubernetes Helm Chart (deployment, HPA, ServiceMonitor) | ✅ Complete |
 | 6E | Region-Aware Routing (priority/latency strategy, data residency, per-region breakers) | ✅ Complete |
 | 6F | A2A Async (non-blocking tasks, SSE streaming, push notifications, Postgres persistence) | ✅ Complete |
+| S1 | Streaming Governance Closure (streaming guardrail pipeline, output keyword block) | ✅ Complete |
+| 19 | Provider Expansion III (Bedrock, Vertex, Groq, Cohere, Mistral adapters) | ✅ Complete |
+| 20 | Key Update + Embeddings (key rotation, /v1/embeddings proxy) | ✅ Complete |
+| — | BATCH-06: Multi-Instance A2A SSE (Redis Pub/Sub bridge) | ✅ Complete (v1.1.0) |
+| — | BATCH-08: Config Hot Reload (file watcher, SIGHUP) | ✅ Complete (v1.1.0) |
+| — | BATCH-09: Admin Dashboard SPA (embed.FS, dark theme) | ✅ Complete (v1.1.0) |
+| — | BATCH-10: Prompt Management (CRUD, migration 008) | ✅ Complete (v1.1.0) |
+| — | BATCH-11: Webhook mTLS (client cert auth) | ✅ Complete (v1.1.0) |
+| — | BATCH-12: Provider Health Dashboard (admin endpoints) | ✅ Complete (v1.1.0) |
+| — | BATCH-13: Redis Cluster (UniversalClient) | ✅ Complete (v1.1.0) |
+| — | BATCH-RP1: Release Prep (git init, v1.1.0 tag) | ✅ Complete (v1.1.0) |
+| — | BATCH-INT1: bytesReader bug fix, embeddings tests restored | ✅ Complete (v1.1.0) |
 
 ### Remaining Work
 
@@ -148,20 +161,8 @@ Virtual keys currently grant access to all models and providers. Add optional mo
 
 ---
 
-### BATCH-06: Multi-Instance SSE for A2A
-**Priority:** P1
-**Estimate:** ~350 LOC
-**Dependencies:** Redis (existing)
-
-A2A SSE streaming is currently single-instance. Add Redis Pub/Sub to broadcast task status changes across gateway instances so any instance can serve SSE watchers.
-
-| Item | Description |
-|---|---|
-| MUST | Publish task updates to Redis channel `a2a:task:{id}` when status changes |
-| MUST | Subscribe to Redis channel in SSE handler when local notifier has no watchers |
-| MUST | Fall back to polling `tasks/get` if Redis unavailable (graceful degradation) |
-| MUST NOT | Require Redis — single-instance SSE must still work without it |
-| MUST NOT | Change the SSE event format or client-facing API |
+### BATCH-06: Multi-Instance SSE for A2A ✅ SHIPPED v1.1.0
+Redis Pub/Sub bridge for cross-instance task notifications. Graceful degradation without Redis.
 
 ---
 
@@ -182,106 +183,33 @@ Support multi-turn A2A conversations where `message/send` appends to an existing
 
 ---
 
-### BATCH-08: Dynamic Config Hot Reload
-**Priority:** P2
-**Estimate:** ~400 LOC
-**Dependencies:** None
-
-Support reloading config without restarting the gateway. Watch `gateway.yaml` for changes and apply them to routing, rate limits, and guardrails.
-
-| Item | Description |
-|---|---|
-| MUST | File watcher on `configs/gateway.yaml` (fsnotify or polling) |
-| MUST | Hot-reload: model routing, provider config, guardrail rules, rate limits |
-| MUST NOT | Hot-reload: database URL, Redis config, server address (require restart) |
-| MUST | Validate new config before applying — reject and log if invalid |
-| MUST | Emit audit event on config reload |
-| MUST NOT | Use any new dependencies beyond stdlib (use polling, not fsnotify) |
+### BATCH-08: Dynamic Config Hot Reload ✅ SHIPPED v1.1.0
+File polling watcher + SIGHUP support. ReloadableConfig separates hot-reloadable fields from restart-required fields.
 
 ---
 
-### BATCH-09: Admin UI — Static Dashboard
-**Priority:** P2
-**Estimate:** ~1,200 LOC (HTML/JS/CSS)
-**Dependencies:** BATCH-02
-
-Build a minimal, single-page admin dashboard served by the gateway at `/admin/ui/`. Uses the existing admin API. No build step — plain HTML + vanilla JS.
-
-| Item | Description |
-|---|---|
-| MUST | Dashboard with: project list, virtual key list (masked), usage charts, health status |
-| MUST | Served as static files from the Go binary (embed.FS) |
-| MUST | Authenticate via the same admin bearer token |
-| MUST NOT | Require Node.js, npm, or any build tooling |
-| MUST NOT | Implement full CRUD — read-only dashboard is sufficient |
-| MUST NOT | Add any CSS/JS framework dependencies |
+### BATCH-09: Admin UI — Static Dashboard ✅ SHIPPED v1.1.0
+SPA with dark theme served via embed.FS. 5 sections: Overview, Keys, Usage, Providers, Request Log.
 
 ---
 
-### BATCH-10: Prompt Management
-**Priority:** P2
-**Estimate:** ~700 LOC
-**Dependencies:** Postgres (existing)
-
-Versioned prompt templates with variable injection. Store prompts in Postgres, inject via API headers or config.
-
-| Item | Description |
-|---|---|
-| MUST | `prompts` table (migration 009) — name, content, version, variables, created_at |
-| MUST | Admin CRUD for prompt templates |
-| MUST | Variable injection: `{{variable}}` placeholders replaced at request time |
-| MUST | `X-Prompt-Template` header to select a template for chat completions |
-| MUST NOT | Implement prompt chaining or agent logic |
-| MUST NOT | Add a template engine dependency — simple string replacement only |
+### BATCH-10: Prompt Management ✅ SHIPPED v1.1.0
+CRUD API at /admin/prompts. Migration 008 for prompt_templates table.
 
 ---
 
-### BATCH-11: Webhook Guardrail — mTLS Support
-**Priority:** P2
-**Estimate:** ~200 LOC
-**Dependencies:** None
-
-The webhook guardrail stage currently supports bearer token auth only. Add mutual TLS support for enterprise deployments where the guardrail service requires client certificates.
-
-| Item | Description |
-|---|---|
-| MUST | Add `tls_cert_file` and `tls_key_file` fields to webhook guardrail config |
-| MUST | Configure HTTP client with TLS client certificate |
-| MUST | Fall back to non-mTLS if cert not configured |
-| MUST NOT | Change the webhook request/response format |
+### BATCH-11: Webhook Guardrail — mTLS Support ✅ SHIPPED v1.1.0
+Client certificate authentication for guardrail webhooks. Falls back to non-mTLS when unconfigured.
 
 ---
 
-### BATCH-12: Provider Health Dashboard
-**Priority:** P2
-**Estimate:** ~500 LOC
-**Dependencies:** BATCH-02
-
-Add admin endpoints for provider health: circuit breaker status, latency p50 per provider/model, error rates. Expose as JSON API for dashboard consumption.
-
-| Item | Description |
-|---|---|
-| MUST | `GET /admin/health/providers` — per-provider circuit breaker state, last error, recovery time |
-| MUST | `GET /admin/health/models` — per-model p50 latency from Prometheus, error rates |
-| MUST | RBAC-protected (viewer minimum) |
-| MUST NOT | Require a new dependency — use existing circuit breaker and metrics packages |
+### BATCH-12: Provider Health Dashboard ✅ SHIPPED v1.1.0
+Admin endpoints for provider/model health. Circuit breaker state, failure counts, timestamps.
 
 ---
 
-### BATCH-13: Redis Cluster Support
-**Priority:** P2
-**Estimate:** ~300 LOC
-**Dependencies:** Redis (existing)
-
-Add Redis Cluster support alongside the existing single-node client. Configurable via `redis.mode: cluster`.
-
-| Item | Description |
-|---|---|
-| MUST | `redis.mode` config field: `single` (default) or `cluster` |
-| MUST | `redis.cluster_addrs` for cluster node addresses |
-| MUST | Same `Client` interface — callers unchanged |
-| MUST NOT | Break single-node Redis configurations |
-| MUST NOT | Add Redis Sentinel support (deferred) |
+### BATCH-13: Redis Cluster Support ✅ SHIPPED v1.1.0
+UniversalClient interface. Cluster mode via `redis.cluster: true`. All callers unchanged.
 
 ---
 
@@ -367,37 +295,37 @@ Support multiple OIDC issuers for multi-tenant deployments. Each project or virt
 
 ## 3. DELIVERY SCHEDULE
 
-### v1.0 Release (P0 + P1 batches)
+### v1.0 Release (P0 + P1 batches) — ✅ COMPLETE
+
+| Batch | Description | Status |
+|---|---|---|
+| BATCH-01 | Stale Documentation Cleanup | ✅ Complete |
+| BATCH-02 | Admin API OpenAPI Spec | ✅ Complete |
+| BATCH-03 | Google Gemini Adapter | ✅ Complete |
+| BATCH-04 | Azure OpenAI Adapter | ✅ Complete |
+| BATCH-05 | Virtual Key Scoping | ✅ Complete |
+| BATCH-06 | Multi-Instance A2A SSE | ✅ Complete |
+
+### v1.1 Release (P2 batches) — ✅ COMPLETE (tagged v1.1.0)
+
+| Batch | Description | Status |
+|---|---|---|
+| BATCH-08 | Config Hot Reload | ✅ Complete |
+| BATCH-09 | Admin UI Dashboard | ✅ Complete |
+| BATCH-10 | Prompt Management | ✅ Complete |
+| BATCH-11 | Webhook mTLS | ✅ Complete |
+| BATCH-12 | Provider Health Dashboard | ✅ Complete |
+| BATCH-13 | Redis Cluster | ✅ Complete |
+
+### v1.2 Release (P3 batches) — 🔲 Planned
 
 | Batch | Description | Sprint |
 |---|---|---|
-| BATCH-01 | Stale Documentation Cleanup | Sprint 1 |
-| BATCH-02 | Admin API OpenAPI Spec | Sprint 1 |
-| BATCH-03 | Google Gemini Adapter | Sprint 2 |
-| BATCH-04 | Azure OpenAI Adapter | Sprint 2 |
-| BATCH-05 | Virtual Key Scoping | Sprint 3 |
-| BATCH-06 | Multi-Instance A2A SSE | Sprint 3 |
-
-### v1.1 Release (P2 batches)
-
-| Batch | Description | Sprint |
-|---|---|---|
-| BATCH-07 | A2A Multi-Turn | Sprint 4 |
-| BATCH-08 | Config Hot Reload | Sprint 4 |
-| BATCH-09 | Admin UI Dashboard | Sprint 5 |
-| BATCH-10 | Prompt Management | Sprint 5 |
-| BATCH-11 | Webhook mTLS | Sprint 6 |
-| BATCH-12 | Provider Health Dashboard | Sprint 6 |
-| BATCH-13 | Redis Cluster | Sprint 7 |
-
-### v1.2 Release (P3 batches)
-
-| Batch | Description | Sprint |
-|---|---|---|
+| BATCH-07 | A2A Multi-Turn | Sprint 8 |
 | BATCH-14 | TypeScript SDK | Sprint 8 |
-| BATCH-15 | Python SDK | Sprint 8 |
+| BATCH-15 | Python SDK | Sprint 9 |
 | BATCH-16 | Plugin Interface | Sprint 9 |
-| BATCH-17 | A2A File/Data Parts | Sprint 9 |
+| BATCH-17 | A2A File/Data Parts | Sprint 10 |
 | BATCH-18 | Multi-Tenant OIDC | Sprint 10 |
 
 ---
@@ -434,10 +362,10 @@ All AIV documents are stored at `docs/aiv/BATCH-XX/`:
 
 | Release | Batches | New LOC (est.) | Tests (est.) | Sprints |
 |---|---|---|---|---|
-| v1.0 | 6 | ~2,300 | ~50 | 3 |
-| v1.1 | 7 | ~3,950 | ~70 | 4 |
-| v1.2 | 5 | ~3,300 | ~55 | 3 |
-| **Total** | **18** | **~9,550** | **~175** | **10** |
+| v1.0 | 6 | ~2,300 | ~50 | 3 | ✅ |
+| v1.1 | 7 (+RP1, INT1) | ~4,200 | ~90 | 5 | ✅ |
+| v1.2 | 6 | ~3,300 | ~55 | 3 | 🔲 |
+| **Total** | **19** | **~9,800** | **~195** | **11** | |
 
 ---
 
@@ -445,14 +373,15 @@ All AIV documents are stored at `docs/aiv/BATCH-XX/`:
 
 | ID | Description | Priority | Batch |
 |---|---|---|---|
-| TD-01 | Known Limitations section stale (items 9, 11, 12 resolved) | P0 | BATCH-01 |
-| TD-02 | No OpenAPI spec for admin API | P1 | BATCH-02 |
-| TD-03 | Only 2 provider adapters (OpenAI, Anthropic) | P1 | BATCH-03, 04 |
-| TD-04 | Virtual keys have no model/provider scoping | P1 | BATCH-05 |
-| TD-05 | A2A SSE is single-instance only | P1 | BATCH-06 |
-| TD-06 | Config changes require restart | P2 | BATCH-08 |
-| TD-07 | No admin UI | P2 | BATCH-09 |
-| TD-08 | Redis Cluster not supported | P2 | BATCH-13 |
+| TD-01 | ~~Known Limitations section stale~~ | ~~P0~~ | ✅ Resolved |
+| TD-02 | ~~No OpenAPI spec for admin API~~ | ~~P1~~ | ✅ Resolved |
+| TD-03 | ~~Only 2 provider adapters~~ | ~~P1~~ | ✅ Resolved (10 adapters) |
+| TD-04 | ~~Virtual keys have no scoping~~ | ~~P1~~ | ✅ Resolved |
+| TD-05 | ~~A2A SSE is single-instance only~~ | ~~P1~~ | ✅ Resolved |
+| TD-06 | ~~Config changes require restart~~ | ~~P2~~ | ✅ Resolved |
+| TD-07 | ~~No admin UI~~ | ~~P2~~ | ✅ Resolved |
+| TD-08 | ~~Redis Cluster not supported~~ | ~~P2~~ | ✅ Resolved |
+| TD-09 | ~~Embeddings tests hang~~ | ~~P2~~ | ✅ Resolved (BATCH-INT1) |
 
 ---
 
@@ -478,7 +407,7 @@ internal/
   metrics/                    # Prometheus metrics collector
   migrate/                    # Database migration runner (7 migrations)
   oidc/                       # OpenID Connect SSO (JWT validation, auto-provision)
-  providers/                  # Provider adapters (OpenAI, Anthropic)
+  providers/                  # Provider adapters (OpenAI, Anthropic, Gemini, Azure, Bedrock, Vertex, Groq, Cohere, Mistral)
   redis/                      # Redis client with health check
   ratelimit/                  # Token bucket + Redis sliding window limiter
   requestid/                  # Request ID context propagation
@@ -509,9 +438,9 @@ configs/                      # Example config files
 | v0.5.0 | Phase 5A (MCP Client) | ✅ Complete | 2026-04-29 |
 | v0.5.1 | Phase 5B (MCP Server + A2A) | ✅ Complete | 2026-04-29 |
 | v0.6.0 | Phase 6A-6F (Enterprise) | ✅ Complete | 2026-04-30 |
-| v1.0.0 | BATCH-01 through BATCH-06 | 🔲 Planned | TBD |
-| v1.1.0 | BATCH-07 through BATCH-13 | 🔲 Planned | TBD |
-| v1.2.0 | BATCH-14 through BATCH-18 | 🔲 Planned | TBD |
+| v1.0.0 | BATCH-01 through BATCH-06 | ✅ Complete | 2026-05-02 |
+| v1.1.0 | BATCH-08 through BATCH-13 + RP1 + INT1 | ✅ Complete | 2026-05-03 |
+| v1.2.0 | BATCH-07, BATCH-14 through BATCH-18 | 🔲 Planned | TBD |
 
 ---
 
