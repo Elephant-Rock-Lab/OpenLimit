@@ -3,12 +3,13 @@ package mcp
 import (
 	"encoding/json"
 	"log/slog"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	goredis "github.com/redis/go-redis/v9"
+
+	"openlimit/internal/redis"
 )
 
 // ---------------------------------------------------------------------------
@@ -20,8 +21,8 @@ func TestRedisBridge_PublishSerializesAndPublishes(t *testing.T) {
 	pubsub := goredis.NewClient(&goredis.Options{
 		Addr: "localhost:0", // will fail to connect, but we only test Publish path
 	})
-	// We use a captured publish tracker instead
-	tracker := &publishTracker{}
+	var rc redis.UniversalClient = pubsub
+	_ = rc // bridge uses the interface
 
 	bridge := &RedisTaskBridge{
 		redisClient: pubsub,
@@ -65,15 +66,8 @@ func TestRedisBridge_PublishSerializesAndPublishes(t *testing.T) {
 		t.Errorf("expected model 'gpt-4', got %q", decoded.Task.Model)
 	}
 
-	_ = tracker // just to avoid unused var
+	_ = rc // bridge uses the interface
 	pubsub.Close()
-}
-
-// publishTracker counts Publish calls for verification.
-type publishTracker struct {
-	mu      sync.Mutex
-	calls   []string
-	publish func(channel string, data []byte) error
 }
 
 // ---------------------------------------------------------------------------

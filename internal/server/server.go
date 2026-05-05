@@ -25,8 +25,13 @@ import (
 	"openlimit/internal/providers"
 	anthropicadapter "openlimit/internal/providers/anthropic"
 	azureadapter "openlimit/internal/providers/azure"
+	bedrockadapter "openlimit/internal/providers/bedrock"
+	cohereadapter "openlimit/internal/providers/cohere"
 	geminiadapter "openlimit/internal/providers/gemini"
+	groqadapter "openlimit/internal/providers/groq"
+	mistraladapter "openlimit/internal/providers/mistral"
 	openaiadapter "openlimit/internal/providers/openai"
+	vertexadapter "openlimit/internal/providers/vertex"
 	rediscli "openlimit/internal/redis"
 	"openlimit/internal/routing"
 	openaischema "openlimit/internal/schema/openai"
@@ -120,6 +125,16 @@ func NewRuntime(cfg config.Config, logger *slog.Logger, db *sql.DB) *Runtime {
 			adapters[name] = geminiadapter.New(name, providerCfg.BaseURL, providerCfg.GeminiModelMap)
 		case "azure-openai":
 			adapters[name] = azureadapter.New(name, providerCfg.AzureResource, providerCfg.AzureAPIVersion)
+		case "bedrock":
+			adapters[name] = bedrockadapter.New(name, providerCfg.BaseURL)
+		case "vertex":
+			adapters[name] = vertexadapter.New(name, providerCfg.Project, providerCfg.Region, providerCfg.Publisher)
+		case "groq":
+			adapters[name] = groqadapter.New(providerCfg.BaseURL)
+		case "cohere":
+			adapters[name] = cohereadapter.New(providerCfg.BaseURL)
+		case "mistral":
+			adapters[name] = mistraladapter.New(providerCfg.BaseURL)
 		}
 		keyRing := providers.NewKeyRing(providerCfg, kmsFetcher)
 		keys[name] = keyRing
@@ -439,7 +454,7 @@ func NewRuntime(cfg config.Config, logger *slog.Logger, db *sql.DB) *Runtime {
 			// Wire Redis bridge for multi-instance A2A SSE
 			if redisClient != nil && redisClient.Healthy() {
 				bridge := mcp.NewRedisTaskBridge(
-					redisClient.Standalone(),
+					redisClient.Universal(),
 					"openlimit:a2a:task_updates",
 					a2aHandler.Notifier(),
 					mcp.NewInstanceID(),

@@ -214,23 +214,25 @@ providers:
         weight: 100
 
   # ── AWS Bedrock ───────────────────────────────────────────────────────
+  # Requires: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY env vars
   # bedrock:
   #   type: bedrock
   #   region: us-east-1
   #   keys:
   #     - id: bedrock-primary
   #       env: AWS_ACCESS_KEY_ID
-  #       secret_env: AWS_SECRET_ACCESS_KEY  # read from env for Sigv4 signing
   #       weight: 100
 
   # ── Google Vertex AI ───────────────────────────────────────────────────
+  # Requires: GOOGLE_ACCESS_TOKEN env var (OAuth2 access token)
   # vertex:
   #   type: vertex
-  #   project_id: my-gcp-project
+  #   project: my-gcp-project
   #   region: us-central1
+  #   publisher: google
   #   keys:
   #     - id: vertex-primary
-  #       env: GOOGLE_ACCESS_TOKEN  # OAuth2 access token
+  #       env: GOOGLE_ACCESS_TOKEN
   #       weight: 100
 
   # ── Groq ───────────────────────────────────────────────────────────────

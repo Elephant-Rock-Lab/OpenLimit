@@ -199,6 +199,9 @@ type ProviderConfig struct {
 	GeminiModelMap  map[string]string   `yaml:"gemini_model_map"`
 	AzureResource   string              `yaml:"azure_resource"`
 	AzureAPIVersion string              `yaml:"azure_api_version"`
+	Region          string              `yaml:"region"`    // AWS region (bedrock) or Vertex region
+	Project         string              `yaml:"project"`   // GCP project ID (vertex)
+	Publisher       string              `yaml:"publisher"` // Vertex publisher: "google" or "google-genai"
 }
 
 type RegionConfig struct {
