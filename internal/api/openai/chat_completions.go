@@ -636,54 +636,6 @@ func (h *Handler) getBreaker(provider, model, region string) *circuit.Breaker {
 	return b
 }
 
-func (h *Handler) recordUsage(r *http.Request, req openaischema.ChatCompletionRequest, target providers.Target, attempts int, usage *openaischema.Usage, errMsg string, durationMS int64, cacheHit bool, stream bool) {
-	if h.usageW == nil {
-		return
-	}
-
-	authCtx := auth.FromContext(r.Context())
-	requestID := requestid.FromContext(r.Context())
-
-	promptTokens := 0
-	completionTokens := 0
-	totalTokens := 0
-	if usage != nil {
-		promptTokens = usage.PromptTokens
-		completionTokens = usage.CompletionTokens
-		totalTokens = usage.TotalTokens
-	}
-
-	cost := 0.0
-	if h.prices != nil {
-		cost = h.prices.CalculateCost(target.Provider, target.Model, promptTokens, completionTokens)
-	}
-
-	projectID := ""
-	virtualKeyID := ""
-	if authCtx != nil {
-		projectID = authCtx.ProjectID
-		virtualKeyID = authCtx.VirtualKeyID
-	}
-
-	h.usageW.Record(usageapi.Entry{
-		RequestID:        requestID,
-		ProjectID:        projectID,
-		VirtualKeyID:     virtualKeyID,
-		Model:            req.Model,
-		Provider:         target.Provider,
-		ProviderModel:    target.Model,
-		PromptTokens:     promptTokens,
-		CompletionTokens: completionTokens,
-		TotalTokens:      totalTokens,
-		CostUSD:          cost,
-		CacheHit:         cacheHit,
-		Stream:           stream,
-		Attempts:         attempts,
-		DurationMS:       durationMS,
-		Error:            errMsg,
-	})
-}
-
 func writeError(w http.ResponseWriter, r *http.Request, status int, typ string, message string) {
 	writeJSON(w, status, openaischema.ErrorResponse{Error: openaischema.ErrorBody{
 		Message:   message,

@@ -113,33 +113,7 @@ func NewRuntime(cfg config.Config, logger *slog.Logger, db *sql.DB) *Runtime {
 		}
 	}
 
-	adapters := map[string]providers.Adapter{}
-	keys := map[string]*providers.KeyRing{}
-	for name, providerCfg := range cfg.Providers {
-		switch providerCfg.Type {
-		case "openai", "openai-compatible", "":
-			adapters[name] = openaiadapter.New(name, providerCfg.BaseURL)
-		case "anthropic":
-			adapters[name] = anthropicadapter.New(name, providerCfg.BaseURL)
-		case "gemini":
-			adapters[name] = geminiadapter.New(name, providerCfg.BaseURL, providerCfg.GeminiModelMap)
-		case "azure-openai":
-			adapters[name] = azureadapter.New(name, providerCfg.AzureResource, providerCfg.AzureAPIVersion)
-		case "bedrock":
-			adapters[name] = bedrockadapter.New(name, providerCfg.BaseURL)
-		case "vertex":
-			adapters[name] = vertexadapter.New(name, providerCfg.Project, providerCfg.Region, providerCfg.Publisher)
-		case "groq":
-			adapters[name] = groqadapter.New(providerCfg.BaseURL)
-		case "cohere":
-			adapters[name] = cohereadapter.New(providerCfg.BaseURL)
-		case "mistral":
-			adapters[name] = mistraladapter.New(providerCfg.BaseURL)
-		}
-		keyRing := providers.NewKeyRing(providerCfg, kmsFetcher)
-		keys[name] = keyRing
-		logProviderKeyWarnings(logger, name, providerCfg, keyRing)
-	}
+	adapters, keys := buildAdapters(cfg, logger, kmsFetcher)
 
 	// OIDC provider (created early for health check, even if admin is disabled)
 	var oidcProvider *oidcPkg.Provider
@@ -158,32 +132,8 @@ func NewRuntime(cfg config.Config, logger *slog.Logger, db *sql.DB) *Runtime {
 
 	mux.HandleFunc("GET /ready", health.ReadyHandlerWithOIDC(cfg, keys, tracker, oidcProvider))
 
-	// MCP server manager
-	var mcpRegistry *mcp.Registry
-	var mcpManager *mcp.Manager
-	var mcpExecutor *mcp.Executor
-	if cfg.MCP.Enabled {
-		mcpRegistry = mcp.NewRegistry()
-		mcpManager = mcp.NewManager(cfg.MCP, mcpRegistry, logger)
-		if err := mcpManager.Start(context.Background()); err != nil {
-			logger.Warn("MCP manager start failed, continuing without MCP", "error", err)
-		} else {
-			maxRounds := cfg.MCP.MaxToolRounds
-			if maxRounds <= 0 {
-				maxRounds = 5
-			}
-			maxTotal := time.Duration(cfg.MCP.MaxTotalDurationSec) * time.Second
-			if maxTotal <= 0 {
-				maxTotal = 120 * time.Second
-			}
-			mcpExecutor = mcp.NewExecutor(mcpRegistry, mcpManager, maxRounds, maxTotal, nil, logger)
-			logger.Info("MCP enabled",
-				"servers", len(cfg.MCP.Servers),
-				"tools", mcpRegistry.ToolCount(),
-				"max_rounds", maxRounds,
-			)
-		}
-	}
+	// MCP client
+	mcpRegistry, mcpManager, mcpExecutor := buildMCP(cfg, logger)
 
 	// MCP server mode (external MCP clients connect to the gateway)
 	var mcpServerHandler *mcp.ServerHandler
@@ -329,37 +279,9 @@ func NewRuntime(cfg config.Config, logger *slog.Logger, db *sql.DB) *Runtime {
 	// Prometheus metrics (handler registration)
 	mux.Handle("GET /metrics", metricsCollector.MetricsHandler())
 
-	// OpenTelemetry tracing
-	tracer, err := tracing.NewTracer(
-		cfg.Telemetry.Tracing.Enabled,
-		cfg.Telemetry.Tracing.Endpoint,
-		cfg.Telemetry.Tracing.ServiceName,
-		cfg.Telemetry.Tracing.SampleRate,
-		logger,
-	)
-	if err != nil {
-		logger.Warn("tracing initialization failed, continuing without tracing", "error", err)
-		tracer = &tracing.Tracer{}
-	}
+	tracer := buildTracer(cfg, logger)
 
-	// Guardrails
-	var guardrailPipeline *guardrails.Pipeline
-	if cfg.Guardrails.Enabled {
-		var err error
-		guardrailPipeline, err = guardrails.BuildPipeline(cfg.Guardrails)
-		if err != nil {
-			logger.Warn("guardrail pipeline build failed, continuing without guardrails", "error", err)
-			guardrailPipeline = guardrails.NewPipeline(nil, nil)
-		}
-		logger.Info("guardrails enabled",
-			"input_stages", guardrailPipeline.InputStages(),
-			"output_stages", guardrailPipeline.OutputStages(),
-		)
-	}
-
-	if guardrailPipeline != nil && auditLog != nil {
-		guardrailPipeline.SetAuditLogger(auditLog)
-	}
+	guardrailPipeline := buildGuardrails(cfg, logger, auditLog)
 
 	openAIHandler := openaiapi.NewHandler(cfg, logger, router, exactCache, adapters, keys, priceTable, usageWriter, metricsCollector, tracer, guardrailPipeline, mcpRegistry, mcpExecutor, redisClient)
 
@@ -379,71 +301,10 @@ func NewRuntime(cfg config.Config, logger *slog.Logger, db *sql.DB) *Runtime {
 	if cfg.A2A.Enabled {
 		// A2A calls ExecuteForMCP directly — bypasses ServerChatExecutor tool-name
 		// resolution. A2A uses nil identity (gateway-level auth, no per-key governance).
-		a2aExec := func(ctx context.Context, toolName string, args map[string]any) (*mcp.ChatResult, error) {
-			model, _ := args["model"].(string)
-			if model == "" {
-				model = cfg.A2A.DefaultModel
-			}
-
-			var messages []openaischema.ChatMessage
-			if msgs, ok := args["messages"].([]any); ok {
-				for _, m := range msgs {
-					if mMap, ok := m.(map[string]any); ok {
-						role, _ := mMap["role"].(string)
-						content, _ := mMap["content"].(string)
-						contentJSON, _ := json.Marshal(content)
-						messages = append(messages, openaischema.ChatMessage{
-							Role:    role,
-							Content: contentJSON,
-						})
-					}
-				}
-			}
-
-			resp, err := openAIHandler.ExecuteForMCP(ctx, openaischema.ChatCompletionRequest{
-				Model:    model,
-				Messages: messages,
-			}, nil)
-			if err != nil {
-				return nil, err
-			}
-
-			result := &mcp.ChatResult{Model: resp.Model}
-			if len(resp.Choices) > 0 {
-				content := string(resp.Choices[0].Message.Content)
-				if len(content) >= 2 && content[0] == '"' && content[len(content)-1] == '"' {
-					content = content[1 : len(content)-1]
-				}
-				result.Content = content
-				result.FinishReason = string(resp.Choices[0].FinishReason)
-			}
-			if resp.Usage != nil {
-				result.Usage = &mcp.ChatUsage{
-					PromptTokens:     resp.Usage.PromptTokens,
-					CompletionTokens: resp.Usage.CompletionTokens,
-					TotalTokens:      resp.Usage.TotalTokens,
-				}
-			}
-			return result, nil
-		}
+		a2aExec := buildA2AExecutor(cfg, openAIHandler, logger)
 
 		// Create task store: Postgres-backed when DB available, in-memory otherwise
-		var a2aStore mcp.TaskStore
-		if db != nil {
-			a2aStore = mcp.NewPersistentTaskStore(db)
-			logger.Info("A2A task store: Postgres-backed")
-		} else {
-			maxTasks := cfg.A2A.MaxTasks
-			if maxTasks <= 0 {
-				maxTasks = 10000
-			}
-			ttlSec := cfg.A2A.TaskTTLSec
-			if ttlSec <= 0 {
-				ttlSec = 3600
-			}
-			a2aStore = mcp.NewMemoryTaskStore(maxTasks, time.Duration(ttlSec)*time.Second)
-			logger.Info("A2A task store: in-memory (tasks lost on restart)")
-		}
+		a2aStore := buildA2AStore(cfg, db, logger)
 
 		a2aHandler, err := mcp.NewA2AHandler(cfg.A2A, a2aExec, a2aStore, logger)
 		if err != nil {
@@ -544,4 +405,170 @@ func durationMS(ms int) time.Duration {
 		return 0
 	}
 	return time.Duration(ms) * time.Millisecond
+}
+
+// buildAdapters creates provider adapters and key rings from config.
+func buildAdapters(cfg config.Config, logger *slog.Logger, kmsFetcher kms.KeyFetcher) (map[string]providers.Adapter, map[string]*providers.KeyRing) {
+	adapters := map[string]providers.Adapter{}
+	keys := map[string]*providers.KeyRing{}
+	for name, providerCfg := range cfg.Providers {
+		switch providerCfg.Type {
+		case "openai", "openai-compatible", "":
+			adapters[name] = openaiadapter.New(name, providerCfg.BaseURL)
+		case "anthropic":
+			adapters[name] = anthropicadapter.New(name, providerCfg.BaseURL)
+		case "gemini":
+			adapters[name] = geminiadapter.New(name, providerCfg.BaseURL, providerCfg.GeminiModelMap)
+		case "azure-openai":
+			adapters[name] = azureadapter.New(name, providerCfg.AzureResource, providerCfg.AzureAPIVersion)
+		case "bedrock":
+			adapters[name] = bedrockadapter.New(name, providerCfg.BaseURL)
+		case "vertex":
+			adapters[name] = vertexadapter.New(name, providerCfg.Project, providerCfg.Region, providerCfg.Publisher)
+		case "groq":
+			adapters[name] = groqadapter.New(providerCfg.BaseURL)
+		case "cohere":
+			adapters[name] = cohereadapter.New(providerCfg.BaseURL)
+		case "mistral":
+			adapters[name] = mistraladapter.New(providerCfg.BaseURL)
+		}
+		keyRing := providers.NewKeyRing(providerCfg, kmsFetcher)
+		keys[name] = keyRing
+		logProviderKeyWarnings(logger, name, providerCfg, keyRing)
+	}
+	return adapters, keys
+}
+
+// buildA2AExecutor creates the chat executor closure for A2A requests.
+func buildA2AExecutor(cfg config.Config, handler *openaiapi.Handler, logger *slog.Logger) mcp.ChatExecutor {
+	return func(ctx context.Context, toolName string, args map[string]any) (*mcp.ChatResult, error) {
+		model, _ := args["model"].(string)
+		if model == "" {
+			model = cfg.A2A.DefaultModel
+		}
+
+		var messages []openaischema.ChatMessage
+		if msgs, ok := args["messages"].([]any); ok {
+			for _, m := range msgs {
+				if mMap, ok := m.(map[string]any); ok {
+					role, _ := mMap["role"].(string)
+					content, _ := mMap["content"].(string)
+					contentJSON, _ := json.Marshal(content)
+					messages = append(messages, openaischema.ChatMessage{
+						Role:    role,
+						Content: contentJSON,
+					})
+				}
+			}
+		}
+
+		resp, err := handler.ExecuteForMCP(ctx, openaischema.ChatCompletionRequest{
+			Model:    model,
+			Messages: messages,
+		}, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		result := &mcp.ChatResult{Model: resp.Model}
+		if len(resp.Choices) > 0 {
+			content := string(resp.Choices[0].Message.Content)
+			if len(content) >= 2 && content[0] == '"' && content[len(content)-1] == '"' {
+				content = content[1 : len(content)-1]
+			}
+			result.Content = content
+			result.FinishReason = string(resp.Choices[0].FinishReason)
+		}
+		if resp.Usage != nil {
+			result.Usage = &mcp.ChatUsage{
+				PromptTokens:     resp.Usage.PromptTokens,
+				CompletionTokens: resp.Usage.CompletionTokens,
+				TotalTokens:      resp.Usage.TotalTokens,
+			}
+		}
+		return result, nil
+	}
+}
+
+// buildA2AStore creates the A2A task store (Postgres or in-memory).
+// buildMCP sets up the MCP client: registry, manager, and executor.
+func buildMCP(cfg config.Config, logger *slog.Logger) (*mcp.Registry, *mcp.Manager, *mcp.Executor) {
+	if !cfg.MCP.Enabled {
+		return nil, nil, nil
+	}
+	registry := mcp.NewRegistry()
+	manager := mcp.NewManager(cfg.MCP, registry, logger)
+	if err := manager.Start(context.Background()); err != nil {
+		logger.Warn("MCP manager start failed, continuing without MCP", "error", err)
+		return registry, nil, nil
+	}
+	maxRounds := cfg.MCP.MaxToolRounds
+	if maxRounds <= 0 {
+		maxRounds = 5
+	}
+	maxTotal := time.Duration(cfg.MCP.MaxTotalDurationSec) * time.Second
+	if maxTotal <= 0 {
+		maxTotal = 120 * time.Second
+	}
+	executor := mcp.NewExecutor(registry, manager, maxRounds, maxTotal, nil, logger)
+	logger.Info("MCP enabled",
+		"servers", len(cfg.MCP.Servers),
+		"tools", registry.ToolCount(),
+		"max_rounds", maxRounds,
+	)
+	return registry, manager, executor
+}
+
+// buildTracer creates the OpenTelemetry tracer.
+func buildTracer(cfg config.Config, logger *slog.Logger) *tracing.Tracer {
+	tracer, err := tracing.NewTracer(
+		cfg.Telemetry.Tracing.Enabled,
+		cfg.Telemetry.Tracing.Endpoint,
+		cfg.Telemetry.Tracing.ServiceName,
+		cfg.Telemetry.Tracing.SampleRate,
+		logger,
+	)
+	if err != nil {
+		logger.Warn("tracing initialization failed, continuing without tracing", "error", err)
+		return &tracing.Tracer{}
+	}
+	return tracer
+}
+
+// buildGuardrails creates the guardrail pipeline from config.
+func buildGuardrails(cfg config.Config, logger *slog.Logger, auditLog *audit.Logger) *guardrails.Pipeline {
+	if !cfg.Guardrails.Enabled {
+		return nil
+	}
+	pipeline, err := guardrails.BuildPipeline(cfg.Guardrails)
+	if err != nil {
+		logger.Warn("guardrail pipeline build failed, continuing without guardrails", "error", err)
+		return guardrails.NewPipeline(nil, nil)
+	}
+	logger.Info("guardrails enabled",
+		"input_stages", pipeline.InputStages(),
+		"output_stages", pipeline.OutputStages(),
+	)
+	if auditLog != nil {
+		pipeline.SetAuditLogger(auditLog)
+	}
+	return pipeline
+}
+
+// buildA2AStore creates the A2A task store (Postgres or in-memory).
+func buildA2AStore(cfg config.Config, db *sql.DB, logger *slog.Logger) mcp.TaskStore {
+	if db != nil {
+		logger.Info("A2A task store: Postgres-backed")
+		return mcp.NewPersistentTaskStore(db)
+	}
+	maxTasks := cfg.A2A.MaxTasks
+	if maxTasks <= 0 {
+		maxTasks = 10000
+	}
+	ttlSec := cfg.A2A.TaskTTLSec
+	if ttlSec <= 0 {
+		ttlSec = 3600
+	}
+	logger.Info("A2A task store: in-memory (tasks lost on restart)")
+	return mcp.NewMemoryTaskStore(maxTasks, time.Duration(ttlSec)*time.Second)
 }

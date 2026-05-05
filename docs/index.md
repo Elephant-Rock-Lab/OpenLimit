@@ -171,6 +171,7 @@ How OpenLimit protects your keys, data, and access.
 ---
 
 ### [Migration to v1.0](migration-v1.0.md)
+### [Migration to v1.1](migration-v1.1.md)
 
 **Audience:** Teams upgrading from Phase 5B/6F
 
@@ -199,6 +200,7 @@ Step-by-step guide for upgrading to v1.0.0.
 | Fix an error | [API Reference](api-reference.md) |
 | Encrypt provider keys | [Security](security.md) |
 | Upgrade from pre-v1.0 | [Migration to v1.0](migration-v1.0.md) |
+| Upgrade from v1.0 to v1.1 | [Migration to v1.1](migration-v1.1.md) |
 
 ---
 
