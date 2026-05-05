@@ -12,6 +12,11 @@ var supportedProviderTypes = map[string]bool{
 	"anthropic":         true,
 	"gemini":            true,
 	"azure-openai":      true,
+	"bedrock":           true,
+	"vertex":            true,
+	"groq":              true,
+	"cohere":            true,
+	"mistral":           true,
 }
 
 func Validate(cfg Config) error {
@@ -43,6 +48,26 @@ func Validate(cfg Config) error {
 			}
 			if strings.TrimSpace(provider.AzureAPIVersion) == "" {
 				provider.AzureAPIVersion = "2025-06-01"
+				cfg.Providers[name] = provider
+			}
+		case "vertex":
+			if strings.TrimSpace(provider.Project) == "" {
+				errs = append(errs, fmt.Sprintf("provider %q: project is required for vertex provider type", name))
+			}
+			if strings.TrimSpace(provider.Region) == "" {
+				errs = append(errs, fmt.Sprintf("provider %q: region is required for vertex provider type", name))
+			}
+		case "groq", "cohere", "mistral":
+			if strings.TrimSpace(provider.BaseURL) == "" {
+				// Default base URLs
+				switch provider.Type {
+				case "groq":
+					provider.BaseURL = "https://api.groq.com/openai/v1"
+				case "cohere":
+					provider.BaseURL = "https://api.cohere.ai/v2"
+				case "mistral":
+					provider.BaseURL = "https://api.mistral.ai/v1"
+				}
 				cfg.Providers[name] = provider
 			}
 		}

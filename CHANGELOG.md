@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-05-04
+
+### Fixed
+- Wire missing provider adapters (bedrock, vertex, groq, cohere, mistral) in
+  server.go — these were defined but never instantiated, causing runtime failures
+- Add bedrock, vertex, groq, cohere, mistral to config validation supported types
+- Fix A2A Redis bridge for cluster mode: changed `*goredis.Client` to
+  `UniversalClient` so the bridge works with both standalone and cluster Redis
+- Add `region`, `project`, `publisher` fields to ProviderConfig for vertex/bedrock
+
 ## [1.1.0] - 2026-05-03
 
 ### Fixed

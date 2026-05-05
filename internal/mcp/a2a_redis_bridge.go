@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"openlimit/internal/redis"
+
 	goredis "github.com/redis/go-redis/v9"
 )
 
@@ -16,7 +18,7 @@ import (
 // TaskNotifier. It is nil-safe — all methods are no-ops when the receiver is nil
 // or when the Redis client is unavailable.
 type RedisTaskBridge struct {
-	redisClient *goredis.Client
+	redisClient redis.UniversalClient
 	channel     string
 	notifier    *TaskNotifier // local notifier for relaying remote updates
 	logger      *slog.Logger
@@ -35,7 +37,7 @@ type bridgeMessage struct {
 
 // NewRedisTaskBridge creates a Redis-backed bridge for cross-instance A2A task
 // notification. If redisClient is nil, returns nil (single-instance mode).
-func NewRedisTaskBridge(redisClient *goredis.Client, channel string, notifier *TaskNotifier, instanceID string, logger *slog.Logger) *RedisTaskBridge {
+func NewRedisTaskBridge(redisClient redis.UniversalClient, channel string, notifier *TaskNotifier, instanceID string, logger *slog.Logger) *RedisTaskBridge {
 	if redisClient == nil {
 		return nil
 	}

@@ -100,6 +100,63 @@ func TestValidate_GeminiValidModelMap(t *testing.T) {
 	}
 }
 
+func TestValidate_AllProviderTypesAccepted(t *testing.T) {
+	types := []string{"openai", "openai-compatible", "anthropic", "gemini", "azure-openai",
+		"bedrock", "vertex", "groq", "cohere", "mistral", ""}
+
+	for _, ptype := range types {
+		t.Run(ptype, func(t *testing.T) {
+			cfg := Default()
+			name := "test-provider"
+			pc := ProviderConfig{
+				Type: ptype,
+				Keys: []ProviderKeyConfig{{ID: "k1", Value: "test"}},
+			}
+			// Fill required fields per type
+			switch ptype {
+			case "gemini":
+				pc.GeminiModelMap = map[string]string{"m": "m1"}
+			case "azure-openai":
+				pc.AzureResource = "res"
+			case "vertex":
+				pc.Project = "proj"
+				pc.Region = "us-central1"
+			case "openai-compatible":
+				pc.BaseURL = "http://localhost:11434/v1"
+			}
+			cfg.Providers[name] = pc
+			cfg.Models["test-model"] = ModelConfig{
+				Routes: []ModelRoute{{Provider: name, Model: "m", Weight: 1}},
+			}
+
+			err := Validate(cfg)
+			if err != nil {
+				t.Fatalf("provider type %q should be accepted, got error: %v", ptype, err)
+			}
+		})
+	}
+}
+
+func TestValidate_VertexRequiresProject(t *testing.T) {
+	cfg := Default()
+	cfg.Providers["vertex-test"] = ProviderConfig{
+		Type:   "vertex",
+		Region: "us-central1",
+		Keys:   []ProviderKeyConfig{{ID: "k1", Value: "test"}},
+	}
+	cfg.Models["m"] = ModelConfig{
+		Routes: []ModelRoute{{Provider: "vertex-test", Model: "m", Weight: 1}},
+	}
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("expected validation error for vertex without project")
+	}
+	if !containsSubstr(err.Error(), "project is required for vertex") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstr(s, substr))
 }
