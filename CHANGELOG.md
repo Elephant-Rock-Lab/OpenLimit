@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.2] - 2026-05-04
+
+### Changed
+- Refactor server.go NewRuntime() — extracted 6 builder functions for clarity
+
+### Added
+- Tests for tracing, usage, and lifecycle packages
+- Rate limiting and budget checks for embeddings requests
+- Migration guide v1.0 → v1.1 (docs/migration-v1.1.md)
+
+### Removed
+- Dead code: unused recordUsage() method on Handler
+
 ## [1.1.1] - 2026-05-04
 
 ### Fixed

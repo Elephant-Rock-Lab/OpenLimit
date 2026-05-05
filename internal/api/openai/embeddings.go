@@ -15,6 +15,7 @@ import (
 	"openlimit/internal/providers"
 	"openlimit/internal/requestid"
 	"openlimit/internal/routing"
+	usage "openlimit/internal/usage"
 )
 
 // EmbeddingsRequest represents an OpenAI-format embeddings request.
@@ -85,6 +86,32 @@ func (h *Handler) Embeddings(w http.ResponseWriter, r *http.Request) {
 	requestID := requestid.FromContext(r.Context())
 	start := time.Now()
 
+	// Rate limiting (when auth context provides RPM limits)
+	authCtx := auth.FromContext(r.Context())
+	if authCtx != nil && authCtx.RPMLimit > 0 {
+		limiter := h.getLimiter(authCtx.VirtualKeyID, authCtx.RPMLimit, authCtx.TPMLimit)
+		allowed, limit, remaining, resetAt := limiter.CheckRPM(authCtx.VirtualKeyID)
+		w.Header().Set("X-RateLimit-Limit", fmt.Sprintf("%d", limit))
+		w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%d", remaining))
+		w.Header().Set("X-RateLimit-Reset", fmt.Sprintf("%d", resetAt.Unix()))
+		if !allowed {
+			w.Header().Set("Retry-After", fmt.Sprintf("%d", int(time.Until(resetAt).Seconds())+1))
+			h.metrics.RecordRateLimitRejection(authCtx.KeyPrefix, authCtx.ProjectID)
+			writeError(w, r, http.StatusTooManyRequests, "rate_limit_exceeded", fmt.Sprintf("rate limit exceeded: %d RPM limit", authCtx.RPMLimit))
+			return
+		}
+	}
+
+	// Budget check (when auth context provides budget)
+	if authCtx != nil && authCtx.BudgetLimitUSD > 0 && h.usageW != nil {
+		spent, err := usage.GetSpendForCurrentPeriod(r.Context(), h.usageW.DB(), authCtx.VirtualKeyID, authCtx.BudgetPeriod)
+		if err == nil && spent >= authCtx.BudgetLimitUSD {
+			h.metrics.RecordBudgetRejection(authCtx.KeyPrefix, authCtx.ProjectID)
+			writeError(w, r, http.StatusForbidden, "budget_exceeded", fmt.Sprintf("budget exceeded: $%.2f of $%.2f", spent, authCtx.BudgetLimitUSD))
+			return
+		}
+	}
+
 	// Route to provider
 	plan, err := h.router.Plan(req.Model)
 	if err != nil {
@@ -135,7 +162,6 @@ func (h *Handler) Embeddings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	authCtx := auth.FromContext(r.Context())
 	projectID := ""
 	virtualKeyID := ""
 	if authCtx != nil {
