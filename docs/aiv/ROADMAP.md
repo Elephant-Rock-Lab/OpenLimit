@@ -322,9 +322,9 @@ Support multiple OIDC issuers for multi-tenant deployments. Each project or virt
 | Batch | Description | Sprint |
 |---|---|---|
 | BATCH-07 | A2A Multi-Turn | Sprint 8 | ✅ Done
-| BATCH-14 | TypeScript SDK | Sprint 8 |
-| BATCH-15 | Python SDK | Sprint 9 |
-| BATCH-16 | Plugin Interface | Sprint 9 |
+| BATCH-14 | TypeScript SDK | Sprint 8 | ✅ Done
+| BATCH-15 | Python SDK | Sprint 9 | ✅ Done
+| BATCH-16 | Plugin Interface | Sprint 9 | ✅ Done
 | BATCH-17 | A2A File/Data Parts | Sprint 10 |
 | BATCH-18 | Multi-Tenant OIDC | Sprint 10 |
 

@@ -8,7 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.2.0] - 2026-05-08
 
 ### Added
-- A2A multi-turn conversations: message/send accepts optional taskId to continue existing task
+- A2A multi-turn conversations: message/send accepts optional taskId
+- TypeScript SDK (@openlimit/sdk) — zero deps, streaming, types
+- Python SDK (openlimit) — zero deps, streaming, types
+- Plugin interface: GuardrailPlugin, MiddlewarePlugin, ProviderPlugin
+- Plugin registry with config-driven loading
+- HeaderInjector example middleware plugin
 - Agent responses appended to task history for multi-turn continuity
 - Rate limiting and budget checks for embeddings requests
 - Tests for tracing (2), usage (2), lifecycle (2) packages
@@ -16,10 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Refactor server.go NewRuntime() — extracted 6 builder functions (29% reduction)
-- Usage Writer now safely handles nil database (no goroutine crash)
+- Usage Writer now safely handles nil database
+- Guardrail pipeline supports 'plugin' stage type
 
 ### Removed
-- Dead code: unused recordUsage() method on Handler
+- Dead code: unused recordUsage() method
 
 ## [1.1.2] - 2026-05-04
 
