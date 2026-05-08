@@ -1,10 +1,12 @@
 package guardrails
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	"openlimit/internal/config"
+	"openlimit/internal/plugins"
 )
 
 // BuildPipeline constructs a guardrail pipeline from config.
@@ -55,6 +57,8 @@ func buildStage(sc config.GuardrailStageConfig, direction string) (Stage, error)
 		return buildWebhookStage(sc.Config)
 	case "json_schema":
 		return buildJSONSchemaStage(sc.Config)
+	case "plugin":
+		return buildPluginStage(sc.Config)
 	default:
 		return nil, fmt.Errorf("unknown guardrail type %q", sc.Type)
 	}
@@ -175,4 +179,56 @@ func getBoolDefault(m map[string]any, key string, def bool) bool {
 		}
 	}
 	return def
+}
+
+func buildPluginStage(cfg map[string]any) (Stage, error) {
+	name := getString(cfg, "name")
+	if name == "" {
+		return nil, fmt.Errorf("plugin guardrail requires 'name' in config")
+	}
+	gp, ok := plugins.LookupGuardrail(name)
+	if !ok {
+		return nil, fmt.Errorf("guardrail plugin %q not found in registry", name)
+	}
+	return &pluginStageAdapter{plugin: gp}, nil
+}
+
+// pluginStageAdapter wraps a GuardrailPlugin as a guardrails.Stage.
+type pluginStageAdapter struct {
+	plugin plugins.GuardrailPlugin
+}
+
+func (p *pluginStageAdapter) Name() string { return p.plugin.Name() }
+
+func (p *pluginStageAdapter) CheckInput(ctx context.Context, messages []Message) (Result, error) {
+	return p.checkMessages(ctx, messages)
+}
+
+func (p *pluginStageAdapter) CheckOutput(ctx context.Context, content string) (Result, error) {
+	gCtx := plugins.NewGuardrailContext(content)
+	gCtx, err := p.plugin.ProcessOutput(gCtx)
+	if err != nil {
+		return Result{Action: Block, Message: err.Error(), StageName: p.plugin.Name()}, nil
+	}
+	if gCtx.Blocked {
+		return Result{Action: Block, Message: gCtx.BlockReason, StageName: p.plugin.Name()}, nil
+	}
+	return Result{Action: Pass, StageName: p.plugin.Name()}, nil
+}
+
+func (p *pluginStageAdapter) checkMessages(ctx context.Context, messages []Message) (Result, error) {
+	var text string
+	for _, m := range messages {
+		text += m.Content
+	}
+
+	gCtx := plugins.NewGuardrailContext(text)
+	gCtx, err := p.plugin.ProcessInput(gCtx)
+	if err != nil {
+		return Result{Action: Block, Message: err.Error(), StageName: p.plugin.Name()}, nil
+	}
+	if gCtx.Blocked {
+		return Result{Action: Block, Message: gCtx.BlockReason, StageName: p.plugin.Name()}, nil
+	}
+	return Result{Action: Pass, StageName: p.plugin.Name()}, nil
 }

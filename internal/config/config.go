@@ -24,6 +24,7 @@ type Config struct {
 	Routing    RoutingConfig             `yaml:"routing"`
 	Providers  map[string]ProviderConfig `yaml:"providers"`
 	Models     map[string]ModelConfig    `yaml:"models"`
+	Plugins    []PluginConfig            `yaml:"plugins"`
 }
 
 type DatabaseConfig struct {
@@ -400,6 +401,13 @@ func Default() Config {
 		Providers: map[string]ProviderConfig{},
 		Models:    map[string]ModelConfig{},
 	}
+}
+
+// PluginConfig configures a single plugin.
+type PluginConfig struct {
+	Name   string         `yaml:"name"`
+	Type   string         `yaml:"type"`   // "guardrail", "middleware", "provider"
+	Config map[string]any `yaml:"config"` // Plugin-specific configuration
 }
 
 func (s ServerConfig) Address() string {
