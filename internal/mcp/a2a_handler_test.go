@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1327,5 +1328,162 @@ func TestA2AMultiTurn_MaintainsHistory(t *testing.T) {
 	}
 	if userMsgCount != 3 {
 		t.Errorf("expected 3 user messages in history, got %d", userMsgCount)
+	}
+}
+
+func TestA2AFilePart_RoundTrips(t *testing.T) {
+	h := newTestHandler(t, testA2AConfig(), mockA2AExecutor)
+
+	body := map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "message/send",
+		"id":      500,
+		"params": map[string]any{
+			"message": map[string]any{
+				"role":      "user",
+				"messageId": "msg-file-1",
+				"parts": []map[string]any{
+					{"type": "file", "fileUri": "https://example.com/doc.pdf", "mimeType": "application/pdf"},
+					{"type": "text", "text": "Please summarize this file"},
+				},
+			},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/a2a", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Result struct {
+			ID     string    `json:"id"`
+			Status TaskState `json:"status"`
+		} `json:"result"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Result.Status != TaskStateCompleted {
+		t.Errorf("expected completed, got %q", resp.Result.Status)
+	}
+
+	// Verify file part preserved in history
+	task, ok := h.store.Get(resp.Result.ID)
+	if !ok {
+		t.Fatal("task not found")
+	}
+	foundFile := false
+	for _, msg := range task.History {
+		for _, part := range msg.Parts {
+			if part.Type == "file" && part.FileURI == "https://example.com/doc.pdf" {
+				foundFile = true
+			}
+		}
+	}
+	if !foundFile {
+		t.Error("expected file part in history")
+	}
+}
+
+func TestA2ADataPart_RoundTrips(t *testing.T) {
+	h := newTestHandler(t, testA2AConfig(), mockA2AExecutor)
+
+	body := map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "message/send",
+		"id":      501,
+		"params": map[string]any{
+			"message": map[string]any{
+				"role":      "user",
+				"messageId": "msg-data-1",
+				"parts": []map[string]any{
+					{"type": "data", "data": map[string]any{"temperature": 0.7, "units": "celsius"}},
+					{"type": "text", "text": "Convert to Fahrenheit"},
+				},
+			},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/a2a", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp struct {
+		Result struct {
+			ID string `json:"id"`
+		} `json:"result"`
+	}
+	json.NewDecoder(w.Body).Decode(&resp)
+
+	task, _ := h.store.Get(resp.Result.ID)
+	foundData := false
+	for _, msg := range task.History {
+		for _, part := range msg.Parts {
+			if part.Type == "data" && part.Data != nil {
+				if v, ok := part.Data["temperature"]; ok {
+					if fmt.Sprintf("%v", v) == "0.7" {
+						foundData = true
+					}
+				}
+			}
+		}
+	}
+	if !foundData {
+		t.Error("expected data part with temperature=0.7 in history")
+	}
+}
+
+func TestExtractTextFromFilePart(t *testing.T) {
+	history := []A2AMessage{
+		{
+			Role: "user",
+			Parts: []A2APart{
+				{Type: "file", FileURI: "https://example.com/img.png", FileMIMEType: "image/png"},
+			},
+		},
+	}
+	text := extractTextFromHistory(history)
+	if text != "[file: image/png https://example.com/img.png]" {
+		t.Errorf("text = %q", text)
+	}
+}
+
+func TestExtractTextFromDataPart(t *testing.T) {
+	history := []A2AMessage{
+		{
+			Role: "user",
+			Parts: []A2APart{
+				{Type: "data", Data: map[string]any{"key": "value"}},
+			},
+		},
+	}
+	text := extractTextFromHistory(history)
+	if text != `{"key":"value"}` {
+		t.Errorf("text = %q", text)
+	}
+}
+
+func TestExtractTextFromBase64FilePart(t *testing.T) {
+	history := []A2AMessage{
+		{
+			Role: "user",
+			Parts: []A2APart{
+				{Type: "file", FileBytes: "SGVsbG8=", FileMIMEType: "text/plain"},
+			},
+		},
+	}
+	text := extractTextFromHistory(history)
+	if !strings.Contains(text, "[file: text/plain <base64") {
+		t.Errorf("text = %q", text)
 	}
 }
