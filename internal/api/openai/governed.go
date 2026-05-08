@@ -11,12 +11,14 @@ import (
 	"time"
 
 	"openlimit/internal/auth"
+	"openlimit/internal/audit"
 	"openlimit/internal/cache"
 	"openlimit/internal/errtypes"
 	"openlimit/internal/guardrails"
 	"openlimit/internal/health"
 	"openlimit/internal/mcp"
 	"openlimit/internal/providers"
+	"openlimit/internal/requestid"
 	"openlimit/internal/routing"
 	openaischema "openlimit/internal/schema/openai"
 	usageapi "openlimit/internal/usage"
@@ -418,6 +420,56 @@ func (h *Handler) ExecuteGoverned(ctx context.Context, req openaischema.ChatComp
 		})
 	}
 
+	// ------ Step 10b: Audit body logging (opt-in) ------
+	if h.logBodies && h.auditLog != nil {
+		authCtx := auth.FromContext(ctx)
+		actor := "anonymous"
+		resource := req.Model
+		if authCtx != nil {
+			actor = authCtx.VirtualKeyID
+			resource = authCtx.ProjectID + "/" + req.Model
+		}
+
+		// Capture request messages
+		reqMessages := make([]map[string]string, 0, len(req.Messages))
+		for _, m := range req.Messages {
+			reqMessages = append(reqMessages, map[string]string{
+				"role":    string(m.Role),
+				"content": string(m.Content),
+			})
+		}
+
+		meta := map[string]any{
+			"model":    req.Model,
+			"provider": target.Provider,
+			"stream":   false,
+			"attempts": attempts,
+		}
+		if resp.Usage != nil {
+			meta["prompt_tokens"] = resp.Usage.PromptTokens
+			meta["completion_tokens"] = resp.Usage.CompletionTokens
+		}
+		meta["cost_usd"] = cost
+		meta["duration_ms"] = time.Since(start).Milliseconds()
+		meta["request_messages"] = reqMessages
+
+		// Capture response content
+		if len(resp.Choices) > 0 {
+			meta["response_content"] = string(resp.Choices[0].Message.Content)
+			meta["finish_reason"] = resp.Choices[0].FinishReason
+		}
+
+		h.auditLog.Record(audit.Event{
+			EventType: audit.EventChatCompletion,
+			Actor:     actor,
+			Action:    "complete",
+			Resource:  resource,
+			Outcome:   "success",
+			RequestID: requestid.FromContext(ctx),
+			Metadata:  meta,
+		})
+	}
+
 	// ------ Step 11: Metrics ------
 	h.metrics.RecordRequest(req.Model, target.Provider, "200", false, time.Since(start))
 	h.metrics.RecordTokens(req.Model, target.Provider, usageValue(resp, "prompt"), usageValue(resp, "completion"))
@@ -695,6 +747,16 @@ func (h *Handler) postStreamGovernance(r *http.Request, req openaischema.ChatCom
 			h.metrics.RecordCost(req.Model, target.Provider, cost)
 		}
 	}
+}
+
+// SetAuditLogger sets the audit logger for request/response body logging.
+func (h *Handler) SetAuditLogger(l *audit.Logger) {
+	h.auditLog = l
+}
+
+// SetLogBodies enables or disables request/response body capture.
+func (h *Handler) SetLogBodies(enabled bool) {
+	h.logBodies = enabled
 }
 
 // Ensure unused-import guard for slog — used in ExecuteGoverned logging.
