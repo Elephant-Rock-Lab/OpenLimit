@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-05-08
+
+### Added
+- A2A multi-turn conversations: message/send accepts optional taskId to continue existing task
+- Agent responses appended to task history for multi-turn continuity
+- Rate limiting and budget checks for embeddings requests
+- Tests for tracing (2), usage (2), lifecycle (2) packages
+- Migration guide v1.0 → v1.1
+
+### Changed
+- Refactor server.go NewRuntime() — extracted 6 builder functions (29% reduction)
+- Usage Writer now safely handles nil database (no goroutine crash)
+
+### Removed
+- Dead code: unused recordUsage() method on Handler
+
 ## [1.1.2] - 2026-05-04
 
 ### Changed

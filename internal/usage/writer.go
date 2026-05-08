@@ -90,6 +90,10 @@ func (w *Writer) process() {
 }
 
 func (w *Writer) write(e Entry) error {
+	if w.db == nil {
+		return nil // no-op when no database configured
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 

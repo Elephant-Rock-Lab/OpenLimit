@@ -233,20 +233,25 @@ func (h *A2AHandler) executeTask(taskID string) {
 	// 6. Update to terminal state
 	if err != nil {
 		var govErr GovernanceBlockedError
+		var failText string
 		if errors.As(err, &govErr) {
-			task.Status = TaskStateFailed
-			task.StatusMessage = &A2AMessage{
-				Role:  "agent",
-				Parts: []A2APart{{Type: "text", Text: "Request blocked by governance policy: " + err.Error()}},
-			}
+			failText = "Request blocked by governance policy: " + err.Error()
 		} else if ctx.Err() == context.Canceled {
 			task.Status = TaskStateCanceled
+			failText = ""
 		} else {
-			task.Status = TaskStateFailed
-			task.StatusMessage = &A2AMessage{
-				Role:  "agent",
-				Parts: []A2APart{{Type: "text", Text: err.Error()}},
+			failText = err.Error()
+		}
+		if failText != "" {
+			failMsg := A2AMessage{
+				Role:       "agent",
+				Parts:      []A2APart{{Type: "text", Text: failText}},
+				MessageID:  newMessageID(),
+				ContextID:  task.ContextID,
 			}
+			task.Status = TaskStateFailed
+			task.StatusMessage = &failMsg
+			task.History = append(task.History, failMsg)
 		}
 		h.logger.Error("A2A task failed", "task_id", taskID, "error", err, "duration", duration)
 	} else {
@@ -255,8 +260,17 @@ func (h *A2AHandler) executeTask(taskID string) {
 			Index:     len(task.Artifacts),
 			LastChunk: true,
 		})
+		agentMsg := A2AMessage{
+			Role:       "agent",
+			Parts:      []A2APart{{Type: "text", Text: chatResult.Content}},
+			MessageID:  newMessageID(),
+			ContextID:  task.ContextID,
+		}
+		task.StatusMessage = &agentMsg
+		task.History = append(task.History, agentMsg)
 		task.Status = TaskStateCompleted
 		task.Model = chatResult.Model
+		task.UpdatedAt = time.Now()
 		h.logger.Info("A2A task completed", "task_id", taskID, "model", chatResult.Model, "duration", duration)
 	}
 
@@ -424,6 +438,7 @@ func (h *A2AHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // messageSendParams contains the parameters for message/send.
 type messageSendParams struct {
+	TaskID            string      `json:"taskId,omitempty"` // optional: continue existing task
 	Message           A2AMessage  `json:"message"`
 	ReturnImmediately *bool       `json:"returnImmediately,omitempty"`
 	PushNotification  *PushConfig `json:"pushNotification,omitempty"`
@@ -459,7 +474,33 @@ func (h *A2AHandler) handleMessageSend(ctx context.Context, req Request) (json.R
 		returnImmediately = *params.ReturnImmediately
 	}
 
-	// Create task
+	// Multi-turn: if taskId provided, load and append to existing task
+	if params.TaskID != "" {
+		existingTask, ok := h.store.Get(params.TaskID)
+		if !ok {
+			return nil, &RPCError{Code: CodeTaskNotFound, Message: "task not found: " + params.TaskID}
+		}
+		// If task is still working, return current state
+		if existingTask.Status == TaskStateWorking {
+			return marshalTaskResult(existingTask)
+		}
+		// Reset to submitted and append user message
+		existingTask.Status = TaskStateSubmitted
+		existingTask.History = append(existingTask.History, A2AMessage{
+			Role:      params.Message.Role,
+			Parts:     params.Message.Parts,
+			MessageID: params.Message.MessageID,
+			ContextID: params.Message.ContextID,
+		})
+		existingTask.UpdatedAt = time.Now()
+
+		if !returnImmediately {
+			return h.handleMessageSendBlockingWithMode(ctx, existingTask, false)
+		}
+		return h.enqueueNonBlocking(ctx, existingTask, false)
+	}
+
+	// Single-turn: create new task
 	task := &A2ATask{
 		ID:        newTaskID(),
 		ContextID: params.Message.ContextID,
@@ -491,7 +532,11 @@ func (h *A2AHandler) handleMessageSend(ctx context.Context, req Request) (json.R
 		return h.handleMessageSendBlocking(ctx, task)
 	}
 
-	// Non-blocking mode: enqueue before storing (zero orphaned tasks)
+	return h.enqueueNonBlocking(ctx, task, true)
+}
+
+// enqueueNonBlocking stores the task and enqueues it for async processing.
+func (h *A2AHandler) enqueueNonBlocking(ctx context.Context, task *A2ATask, isNew bool) (json.RawMessage, *RPCError) {
 	if h.shuttingDown.Load() {
 		return nil, &RPCError{Code: CodeMaxTasksReached, Message: "server is shutting down"}
 	}
@@ -504,9 +549,18 @@ func (h *A2AHandler) handleMessageSend(ctx context.Context, req Request) (json.R
 		return nil, &RPCError{Code: CodeMaxTasksReached, Message: "task queue full, try again later"}
 	}
 
-	// Now store the task (guaranteed to be picked up by a worker)
-	if err := h.store.Create(task); err != nil {
-		return nil, &RPCError{Code: CodeInternalError, Message: "failed to create task: " + err.Error()}
+	// Multi-turn uses Update, single-turn uses Create
+	if task.CreatedAt.IsZero() {
+		task.CreatedAt = time.Now()
+	}
+	var storeErr error
+	if isNew {
+		storeErr = h.store.Create(task)
+	} else {
+		storeErr = h.store.Update(task)
+	}
+	if storeErr != nil {
+		return nil, &RPCError{Code: CodeInternalError, Message: "failed to store task: " + storeErr.Error()}
 	}
 
 	if h.metrics != nil {
@@ -516,10 +570,37 @@ func (h *A2AHandler) handleMessageSend(ctx context.Context, req Request) (json.R
 	return h.marshalTask(task)
 }
 
+// marshalTaskResult wraps a task in a JSON-RPC result.
+func marshalTaskResult(task *A2ATask) (json.RawMessage, *RPCError) {
+	result := struct {
+		ID     string    `json:"id"`
+		Status TaskState `json:"status"`
+	}{
+		ID:     task.ID,
+		Status: task.Status,
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		return nil, &RPCError{Code: CodeInternalError, Message: err.Error()}
+	}
+	return data, nil
+}
+
 // handleMessageSendBlocking executes a task synchronously (legacy blocking mode).
 func (h *A2AHandler) handleMessageSendBlocking(ctx context.Context, task *A2ATask) (json.RawMessage, *RPCError) {
-	if err := h.store.Create(task); err != nil {
-		return nil, &RPCError{Code: CodeMaxTasksReached, Message: "failed to create task: " + err.Error()}
+	return h.handleMessageSendBlockingWithMode(ctx, task, true)
+}
+
+// handleMessageSendBlockingWithMode executes a task synchronously.
+func (h *A2AHandler) handleMessageSendBlockingWithMode(ctx context.Context, task *A2ATask, isNew bool) (json.RawMessage, *RPCError) {
+	var storeErr error
+	if isNew {
+		storeErr = h.store.Create(task)
+	} else {
+		storeErr = h.store.Update(task)
+	}
+	if storeErr != nil {
+		return nil, &RPCError{Code: CodeMaxTasksReached, Message: "failed to store task: " + storeErr.Error()}
 	}
 	if h.metrics != nil {
 		h.metrics.RecordA2ATaskCreated()
@@ -540,19 +621,22 @@ func (h *A2AHandler) handleMessageSendBlocking(ctx context.Context, task *A2ATas
 	chatResult, err := h.chatExecutor(ctx, "a2a", execArgs)
 	if err != nil {
 		var govErr GovernanceBlockedError
+		var failText string
 		if errors.As(err, &govErr) {
-			task.Status = TaskStateFailed
-			task.StatusMessage = &A2AMessage{
-				Role:  "agent",
-				Parts: []A2APart{{Type: "text", Text: "Request blocked by governance policy: " + err.Error()}},
-			}
+			failText = "Request blocked by governance policy: " + err.Error()
 		} else {
-			task.Status = TaskStateFailed
-			task.StatusMessage = &A2AMessage{
-				Role:  "agent",
-				Parts: []A2APart{{Type: "text", Text: err.Error()}},
-			}
+			failText = err.Error()
 		}
+		failMsg := A2AMessage{
+			Role:       "agent",
+			Parts:      []A2APart{{Type: "text", Text: failText}},
+			MessageID:  newMessageID(),
+			ContextID:  task.ContextID,
+		}
+		task.Status = TaskStateFailed
+		task.StatusMessage = &failMsg
+		task.History = append(task.History, failMsg)
+		task.UpdatedAt = time.Now()
 		h.store.Update(task)
 		h.logger.Error("A2A task failed", "task_id", task.ID, "error", err)
 		return h.marshalTask(task)
@@ -563,8 +647,18 @@ func (h *A2AHandler) handleMessageSendBlocking(ctx context.Context, task *A2ATas
 		Index:     0,
 		LastChunk: true,
 	})
+	// Append agent response to history for multi-turn continuity
+	agentMsg := A2AMessage{
+		Role:       "agent",
+		Parts:      []A2APart{{Type: "text", Text: chatResult.Content}},
+		MessageID:  newMessageID(),
+		ContextID:  task.ContextID,
+	}
+	task.History = append(task.History, agentMsg)
+	task.StatusMessage = &agentMsg
 	task.Status = TaskStateCompleted
 	task.Model = chatResult.Model
+	task.UpdatedAt = time.Now()
 	h.store.Update(task)
 
 	h.logger.Info("A2A task completed (blocking)", "task_id", task.ID, "model", chatResult.Model)

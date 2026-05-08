@@ -134,8 +134,8 @@ func TestA2AMessageSendBlocking(t *testing.T) {
 	if task.Artifacts[0].Parts[0].Text != "Echo: test response" {
 		t.Errorf("artifact text = %q", task.Artifacts[0].Parts[0].Text)
 	}
-	if len(task.History) != 1 {
-		t.Errorf("history count = %d, want 1", len(task.History))
+	if len(task.History) != 2 {
+		t.Errorf("history count = %d, want 2 (user + agent)", len(task.History))
 	}
 }
 
@@ -992,4 +992,340 @@ func TestA2ASSEReceivesBridgeRelay(t *testing.T) {
 	}
 
 	h.Shutdown()
+}
+
+func TestA2AMultiTurn_ContinueExistingTask(t *testing.T) {
+	h := newTestHandler(t, testA2AConfig(), mockA2AExecutor)
+
+	// First message: create task (single-turn)
+	body1 := map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "message/send",
+		"id":      100,
+		"params": map[string]any{
+			"message": map[string]any{
+				"role":      "user",
+				"messageId": "msg-1",
+				"parts": []map[string]any{
+					{"type": "text", "text": "Hello"},
+				},
+			},
+		},
+	}
+	bodyBytes1, _ := json.Marshal(body1)
+	req1 := httptest.NewRequest("POST", "/a2a", bytes.NewReader(bodyBytes1))
+	req1.Header.Set("Content-Type", "application/json")
+	w1 := httptest.NewRecorder()
+	h.ServeHTTP(w1, req1)
+
+	var resp1 struct {
+		Result struct {
+			ID string `json:"id"`
+		} `json:"result"`
+	}
+	if err := json.NewDecoder(w1.Body).Decode(&resp1); err != nil {
+		t.Fatal(err)
+	}
+	taskID := resp1.Result.ID
+	if taskID == "" {
+		t.Fatal("expected task ID from first message")
+	}
+
+	// Second message: continue with taskId (multi-turn)
+	body2 := map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "message/send",
+		"id":      101,
+		"params": map[string]any{
+			"taskId": taskID,
+			"message": map[string]any{
+				"role":      "user",
+				"messageId": "msg-2",
+				"parts": []map[string]any{
+					{"type": "text", "text": "Follow-up question"},
+				},
+			},
+		},
+	}
+	bodyBytes2, _ := json.Marshal(body2)
+	req2 := httptest.NewRequest("POST", "/a2a", bytes.NewReader(bodyBytes2))
+	req2.Header.Set("Content-Type", "application/json")
+	w2 := httptest.NewRecorder()
+	h.ServeHTTP(w2, req2)
+
+	if w2.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w2.Code, w2.Body.String())
+	}
+
+	var resp2 struct {
+		Result struct {
+			ID     string    `json:"id"`
+			Status TaskState `json:"status"`
+		} `json:"result"`
+	}
+	if err := json.NewDecoder(w2.Body).Decode(&resp2); err != nil {
+		t.Fatal(err)
+	}
+	if resp2.Result.ID != taskID {
+		t.Errorf("expected same task ID %q, got %q", taskID, resp2.Result.ID)
+	}
+	if resp2.Result.Status != TaskStateCompleted {
+		t.Errorf("expected status completed, got %q", resp2.Result.Status)
+	}
+
+	// Verify history has 4 messages: user1 + agent1 + user2 + agent2
+	task, ok := h.store.Get(taskID)
+	if !ok {
+		t.Fatal("task not found in store")
+	}
+	if len(task.History) < 3 { // at least user1, agent1, user2
+		t.Errorf("expected >= 3 history messages, got %d", len(task.History))
+	}
+}
+
+func TestA2AMultiTurn_InvalidTaskId(t *testing.T) {
+	h := newTestHandler(t, testA2AConfig(), mockA2AExecutor)
+
+	body := map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "message/send",
+		"id":      200,
+		"params": map[string]any{
+			"taskId": "nonexistent-task-id",
+			"message": map[string]any{
+				"role":      "user",
+				"messageId": "msg-1",
+				"parts": []map[string]any{
+					{"type": "text", "text": "Hello"},
+				},
+			},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/a2a", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 (JSON-RPC error in body), got %d", w.Code)
+	}
+
+	var resp struct {
+		Error *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Error == nil {
+		t.Fatal("expected JSON-RPC error")
+	}
+	if resp.Error.Code != CodeTaskNotFound {
+		t.Errorf("error code = %d, want %d (TaskNotFound)", resp.Error.Code, CodeTaskNotFound)
+	}
+}
+
+func TestA2AMultiTurn_WorkingTaskReturnsCurrentState(t *testing.T) {
+	cfg := testA2AConfig()
+	cfg.BlockingMode = false // non-blocking so task stays in working state
+
+	blockCh := make(chan struct{})
+	slowExecutor := func(ctx context.Context, toolName string, args map[string]any) (*ChatResult, error) {
+		<-blockCh // block until test releases
+		return &ChatResult{Content: "done"}, nil
+	}
+	h := newTestHandler(t, cfg, slowExecutor)
+
+	// Create first task
+	body1 := map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "message/send",
+		"id":      300,
+		"params": map[string]any{
+			"message": map[string]any{
+				"role":      "user",
+				"messageId": "msg-1",
+				"parts": []map[string]any{
+					{"type": "text", "text": "Start"},
+				},
+			},
+			"returnImmediately": true,
+		},
+	}
+	bodyBytes1, _ := json.Marshal(body1)
+	req1 := httptest.NewRequest("POST", "/a2a", bytes.NewReader(bodyBytes1))
+	req1.Header.Set("Content-Type", "application/json")
+	w1 := httptest.NewRecorder()
+	h.ServeHTTP(w1, req1)
+
+	var resp1 struct {
+		Result struct {
+			ID string `json:"id"`
+		} `json:"result"`
+	}
+	if err := json.NewDecoder(w1.Body).Decode(&resp1); err != nil {
+		t.Fatal(err)
+	}
+	taskID := resp1.Result.ID
+
+	// Wait for task to start processing
+	time.Sleep(50 * time.Millisecond)
+
+	// Send another message with same taskId while task is working
+	body2 := map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "message/send",
+		"id":      301,
+		"params": map[string]any{
+			"taskId": taskID,
+			"message": map[string]any{
+				"role":      "user",
+				"messageId": "msg-2",
+				"parts": []map[string]any{
+					{"type": "text", "text": "Follow-up"},
+				},
+			},
+		},
+	}
+	bodyBytes2, _ := json.Marshal(body2)
+	req2 := httptest.NewRequest("POST", "/a2a", bytes.NewReader(bodyBytes2))
+	req2.Header.Set("Content-Type", "application/json")
+	w2 := httptest.NewRecorder()
+	h.ServeHTTP(w2, req2)
+
+	var resp2 struct {
+		Result struct {
+			ID     string    `json:"id"`
+			Status TaskState `json:"status"`
+		} `json:"result"`
+		Error *struct {
+			Code int `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(w2.Body).Decode(&resp2); err != nil {
+		t.Fatal(err)
+	}
+
+	// Should return current state (working) without error
+	if resp2.Error != nil {
+		t.Fatalf("unexpected error: code=%d", resp2.Error.Code)
+	}
+	if resp2.Result.ID != taskID {
+		t.Errorf("expected task ID %q, got %q", taskID, resp2.Result.ID)
+	}
+
+	// Release the executor
+	close(blockCh)
+}
+
+func TestA2AMultiTurn_MaintainsHistory(t *testing.T) {
+	h := newTestHandler(t, testA2AConfig(), mockA2AExecutor)
+
+	// First turn
+	body1 := map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "message/send",
+		"id":      400,
+		"params": map[string]any{
+			"message": map[string]any{
+				"role":      "user",
+				"messageId": "msg-1",
+				"parts": []map[string]any{
+					{"type": "text", "text": "Turn 1"},
+				},
+			},
+		},
+	}
+	bodyBytes1, _ := json.Marshal(body1)
+	req1 := httptest.NewRequest("POST", "/a2a", bytes.NewReader(bodyBytes1))
+	req1.Header.Set("Content-Type", "application/json")
+	w1 := httptest.NewRecorder()
+	h.ServeHTTP(w1, req1)
+
+	var resp1 struct {
+		Result struct {
+			ID string `json:"id"`
+		} `json:"result"`
+	}
+	json.NewDecoder(w1.Body).Decode(&resp1)
+	taskID := resp1.Result.ID
+
+	// Verify turn 1 history
+	task, _ := h.store.Get(taskID)
+	turn1Len := len(task.History)
+
+	// Second turn
+	body2 := map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "message/send",
+		"id":      401,
+		"params": map[string]any{
+			"taskId": taskID,
+			"message": map[string]any{
+				"role":      "user",
+				"messageId": "msg-2",
+				"parts": []map[string]any{
+					{"type": "text", "text": "Turn 2"},
+				},
+			},
+		},
+	}
+	bodyBytes2, _ := json.Marshal(body2)
+	req2 := httptest.NewRequest("POST", "/a2a", bytes.NewReader(bodyBytes2))
+	req2.Header.Set("Content-Type", "application/json")
+	w2 := httptest.NewRecorder()
+	h.ServeHTTP(w2, req2)
+
+	if w2.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w2.Code)
+	}
+
+	// Verify turn 2 history grew
+	task, _ = h.store.Get(taskID)
+	if len(task.History) <= turn1Len {
+		t.Errorf("expected history to grow beyond %d messages, got %d", turn1Len, len(task.History))
+	}
+
+	// Third turn
+	body3 := map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "message/send",
+		"id":      402,
+		"params": map[string]any{
+			"taskId": taskID,
+			"message": map[string]any{
+				"role":      "user",
+				"messageId": "msg-3",
+				"parts": []map[string]any{
+					{"type": "text", "text": "Turn 3"},
+				},
+			},
+		},
+	}
+	bodyBytes3, _ := json.Marshal(body3)
+	req3 := httptest.NewRequest("POST", "/a2a", bytes.NewReader(bodyBytes3))
+	req3.Header.Set("Content-Type", "application/json")
+	w3 := httptest.NewRecorder()
+	h.ServeHTTP(w3, req3)
+
+	// Verify turn 3 history grew further
+	task, _ = h.store.Get(taskID)
+	turn3Len := len(task.History)
+	if turn3Len <= turn1Len+2 {
+		t.Errorf("expected history to grow significantly, got %d", turn3Len)
+	}
+
+	// Verify message ordering
+	userMsgCount := 0
+	for _, msg := range task.History {
+		if msg.Role == "user" {
+			userMsgCount++
+		}
+	}
+	if userMsgCount != 3 {
+		t.Errorf("expected 3 user messages in history, got %d", userMsgCount)
+	}
 }
