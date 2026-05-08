@@ -19,6 +19,8 @@ const (
 	EventUserUpdate      = "user.update_role"
 	EventOIDCAuthSuccess = "oidc.auth_success"
 	EventOIDCAuthFailure = "oidc.auth_failure"
+	EventChatCompletion = "chat.completion"
+	EventEmbedding      = "embedding"
 )
 
 // Event represents a single audit log entry.

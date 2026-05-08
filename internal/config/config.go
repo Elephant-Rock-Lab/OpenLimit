@@ -130,6 +130,7 @@ type LoggingConfig struct {
 	Format        string `yaml:"format"`
 	AddSource     bool   `yaml:"add_source"`
 	RedactPrompts bool   `yaml:"redact_prompts"`
+	LogBodies     bool   `yaml:"log_bodies"` // capture request/response bodies in audit log
 }
 
 type GuardrailsConfig struct {

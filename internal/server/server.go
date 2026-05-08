@@ -287,6 +287,10 @@ func NewRuntime(cfg config.Config, logger *slog.Logger, db *sql.DB) *Runtime {
 
 	// Wire health tracker into handler (same instance as router — AUTH-05).
 	openAIHandler.SetHealthTracker(healthTracker)
+	if auditLog != nil && cfg.Logging.LogBodies {
+		openAIHandler.SetAuditLogger(auditLog)
+		openAIHandler.SetLogBodies(true)
+	}
 
 	// Wire MCP server executor: tool calls → chat completions pipeline
 	var serverExec *mcp.ServerChatExecutor

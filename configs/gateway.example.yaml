@@ -78,6 +78,8 @@ logging:
   format: json
   add_source: false
   redact_prompts: true
+  # log_bodies: true          # opt-in: capture full request/response bodies in audit_logs
+  #                            # WARNING: stores prompt + completion text in DB
 
 cache:
   exact:

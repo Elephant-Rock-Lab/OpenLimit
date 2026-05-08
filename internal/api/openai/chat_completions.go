@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"openlimit/internal/auth"
+	"openlimit/internal/audit"
 	"openlimit/internal/billing"
 	"openlimit/internal/cache"
 	"openlimit/internal/circuit"
@@ -51,6 +52,8 @@ type Handler struct {
 	mcpRegistry   *mcp.Registry
 	mcpExecutor   *mcp.Executor
 	healthTracker *health.Tracker
+	auditLog      *audit.Logger
+	logBodies     bool
 }
 
 func NewHandler(cfg config.Config, logger *slog.Logger, router *routing.Router, exactCache cache.Cache, adapters map[string]providers.Adapter, keys map[string]*providers.KeyRing, prices *billing.PriceTable, usageW *usageapi.Writer, m *metrics.Collector, t *tracing.Tracer, g *guardrails.Pipeline, mcpReg *mcp.Registry, mcpExec *mcp.Executor, redisClient *rediscli.Client) *Handler {
