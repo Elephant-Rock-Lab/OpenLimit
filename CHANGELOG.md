@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Plugin interface: GuardrailPlugin, MiddlewarePlugin, ProviderPlugin
 - Plugin registry with config-driven loading
 - HeaderInjector example middleware plugin
+- A2A File/Data parts: fileUri, base64 bytes, structured JSON data
+- Multi-tenant OIDC: multiple issuers with issuer-based token routing
 - Agent responses appended to task history for multi-turn continuity
 - Rate limiting and budget checks for embeddings requests
 - Tests for tracing (2), usage (2), lifecycle (2) packages
