@@ -317,11 +317,11 @@ Support multiple OIDC issuers for multi-tenant deployments. Each project or virt
 | BATCH-12 | Provider Health Dashboard | ✅ Complete |
 | BATCH-13 | Redis Cluster | ✅ Complete |
 
-### v1.2 Release (P3 batches) — 🔲 Planned
+### v1.2 Release (P3 batches) — 🔄 In Progress
 
 | Batch | Description | Sprint |
 |---|---|---|
-| BATCH-07 | A2A Multi-Turn | Sprint 8 |
+| BATCH-07 | A2A Multi-Turn | Sprint 8 | ✅ Done
 | BATCH-14 | TypeScript SDK | Sprint 8 |
 | BATCH-15 | Python SDK | Sprint 9 |
 | BATCH-16 | Plugin Interface | Sprint 9 |
