@@ -1,0 +1,17 @@
+Metadata-Version: 2.4
+Name: openlimit
+Version: 1.2.0
+Summary: Python SDK for OpenLimit AI API Gateway
+License: MIT
+Project-URL: Repository, https://github.com/nicklausw/openlimit
+Keywords: openlimit,ai,gateway,openai,llm
+Classifier: Development Status :: 4 - Beta
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Programming Language :: Python :: 3.13
+Classifier: Topic :: Software Development :: Libraries
+Requires-Python: >=3.10
