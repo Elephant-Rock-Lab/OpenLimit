@@ -317,7 +317,7 @@ Support multiple OIDC issuers for multi-tenant deployments. Each project or virt
 | BATCH-12 | Provider Health Dashboard | ✅ Complete |
 | BATCH-13 | Redis Cluster | ✅ Complete |
 
-### v1.2 Release (P3 batches) — 🔄 In Progress
+### v1.2 Release (P3 batches) — ✅ Complete
 
 | Batch | Description | Sprint |
 |---|---|---|
@@ -325,8 +325,8 @@ Support multiple OIDC issuers for multi-tenant deployments. Each project or virt
 | BATCH-14 | TypeScript SDK | Sprint 8 | ✅ Done
 | BATCH-15 | Python SDK | Sprint 9 | ✅ Done
 | BATCH-16 | Plugin Interface | Sprint 9 | ✅ Done
-| BATCH-17 | A2A File/Data Parts | Sprint 10 |
-| BATCH-18 | Multi-Tenant OIDC | Sprint 10 |
+| BATCH-17 | A2A File/Data Parts | Sprint 10 | ✅ Done
+| BATCH-18 | Multi-Tenant OIDC | Sprint 10 | ✅ Done
 
 ---
 
