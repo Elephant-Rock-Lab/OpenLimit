@@ -78,6 +78,15 @@ type OIDCConfig struct {
 	Audience     string `yaml:"audience"`
 	DefaultRole  string `yaml:"default_role"`
 	JWKSCacheTTL int    `yaml:"jwks_cache_ttl_seconds"`
+	// Multi-tenant: additional providers (when set, Issuer/Audience above is provider[0])
+	Providers    []OIDCProviderConfig `yaml:"providers"`
+}
+
+type OIDCProviderConfig struct {
+	Issuer       string `yaml:"issuer"`
+	Audience     string `yaml:"audience"`
+	DefaultRole  string `yaml:"default_role"`
+	JWKSCacheTTL int    `yaml:"jwks_cache_ttl_seconds"`
 }
 
 type BillingConfig struct {
