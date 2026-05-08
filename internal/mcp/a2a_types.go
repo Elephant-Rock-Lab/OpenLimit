@@ -45,9 +45,18 @@ type A2AMessage struct {
 }
 
 // A2APart is a content part (text only for MVP).
+// A2APart is a content part in the A2A protocol.
+// Supports three types:
+//   - "text": plain text content (Text field)
+//   - "file": file reference (FileURI, FileMIMEType, FileBytes)
+//   - "data": structured JSON data (Data field)
 type A2APart struct {
-	Type string `json:"type"`
-	Text string `json:"text,omitempty"`
+	Type        string         `json:"type"`
+	Text        string         `json:"text,omitempty"`
+	FileURI     string         `json:"fileUri,omitempty"`     // URL or path to file
+	FileMIMEType string        `json:"mimeType,omitempty"`   // MIME type of file
+	FileBytes   string         `json:"bytes,omitempty"`      // Base64-encoded file content
+	Data        map[string]any  `json:"data,omitempty"`       // Structured key-value data
 }
 
 // A2AArtifact represents a task output artifact (A2A spec v1.0).

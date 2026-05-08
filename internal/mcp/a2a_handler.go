@@ -665,12 +665,30 @@ func (h *A2AHandler) handleMessageSendBlockingWithMode(ctx context.Context, task
 	return h.marshalTask(task)
 }
 
-// extractTextFromHistory gets the first text part from message history.
+// extractTextFromHistory extracts text content from message history.
+// For text parts, returns the text directly.
+// For file parts, returns a description like "[file: <mime> <uri>]".
+// For data parts, returns a JSON representation.
 func extractTextFromHistory(history []A2AMessage) string {
 	for _, msg := range history {
 		for _, part := range msg.Parts {
-			if part.Type == "text" && part.Text != "" {
-				return part.Text
+			switch part.Type {
+			case "text":
+				if part.Text != "" {
+					return part.Text
+				}
+			case "file":
+				if part.FileURI != "" {
+					return fmt.Sprintf("[file: %s %s]", part.FileMIMEType, part.FileURI)
+				}
+				if part.FileBytes != "" {
+					return fmt.Sprintf("[file: %s <base64 %d bytes>]", part.FileMIMEType, len(part.FileBytes))
+				}
+			case "data":
+				if part.Data != nil {
+					jsonBytes, _ := json.Marshal(part.Data)
+					return string(jsonBytes)
+				}
 			}
 		}
 	}
