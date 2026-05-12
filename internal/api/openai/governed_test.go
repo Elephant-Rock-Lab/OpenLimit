@@ -9,12 +9,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"openlimit/internal/audit"
 	"openlimit/internal/cache"
+	"openlimit/internal/circuit"
 	"openlimit/internal/config"
 	"openlimit/internal/guardrails"
 	"openlimit/internal/metrics"
@@ -1412,5 +1414,271 @@ func TestGuardrailRedaction_EmptyContent(t *testing.T) {
 	}
 	if unmarshalled != "" {
 		t.Errorf("roundtrip of empty string failed: got %q, want empty", unmarshalled)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// BATCH-60 / TASK-01: Streaming Output Guardrails
+// ---------------------------------------------------------------------------
+
+// blockOutputStage always blocks on output.
+type blockOutputStage struct{}
+
+func (s *blockOutputStage) Name() string { return "test-output-blocker" }
+func (s *blockOutputStage) CheckInput(_ context.Context, _ []guardrails.Message) (guardrails.Result, error) {
+	return guardrails.Result{Action: guardrails.Pass}, nil
+}
+func (s *blockOutputStage) CheckOutput(_ context.Context, _ string) (guardrails.Result, error) {
+	return guardrails.Result{
+		Action:    guardrails.Block,
+		Message:   "content blocked by output stage",
+		StageName: "test-output-blocker",
+	}, nil
+}
+
+// redactOutputStage always redacts on output.
+type redactOutputStage struct{}
+
+func (s *redactOutputStage) Name() string { return "test-output-redactor" }
+func (s *redactOutputStage) CheckInput(_ context.Context, _ []guardrails.Message) (guardrails.Result, error) {
+	return guardrails.Result{Action: guardrails.Pass}, nil
+}
+func (s *redactOutputStage) CheckOutput(_ context.Context, content string) (guardrails.Result, error) {
+	return guardrails.Result{
+		Action:    guardrails.Redact,
+		Message:   "[REDACTED]",
+		StageName: "test-output-redactor",
+	}, nil
+}
+
+// passOutputStage always passes on output.
+type passOutputStage struct{}
+
+func (s *passOutputStage) Name() string { return "test-output-passer" }
+func (s *passOutputStage) CheckInput(_ context.Context, _ []guardrails.Message) (guardrails.Result, error) {
+	return guardrails.Result{Action: guardrails.Pass}, nil
+}
+func (s *passOutputStage) CheckOutput(_ context.Context, _ string) (guardrails.Result, error) {
+	return guardrails.Result{Action: guardrails.Pass, StageName: "test-output-passer"}, nil
+}
+
+// TEST-60-01-01: Streaming with nil output guardrails sends [DONE] normally.
+func TestStreamOutputGuardrails_NilGuardrails_SendsDone(t *testing.T) {
+	chunks := []openaischema.ChatCompletionStreamChunk{
+		makeChunk("hello"),
+		makeChunk(" world"),
+	}
+	adapter := newStreamGovAdapter(chunks, nil)
+	h := streamGovHandler(t, adapter, nil) // nil guardrails
+
+	req := makeStreamRequest(t)
+	w := httptest.NewRecorder()
+	h.ChatCompletions(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+
+	body := w.Body.String()
+	if !strings.Contains(body, "data: [DONE]") {
+		t.Error("response body should contain 'data: [DONE]'")
+	}
+	if strings.Contains(body, "event: error") {
+		t.Error("response body should NOT contain 'event: error'")
+	}
+}
+
+// TEST-60-01-02: Streaming blocked by output guardrail sends SSE error event (NOT [DONE]).
+func TestStreamOutputGuardrails_Block_SendsErrorEvent(t *testing.T) {
+	chunks := []openaischema.ChatCompletionStreamChunk{
+		makeChunk("sensitive data"),
+	}
+	adapter := newStreamGovAdapter(chunks, nil)
+	pipeline := guardrails.NewPipeline(nil, []guardrails.Stage{&blockOutputStage{}})
+	h := streamGovHandler(t, adapter, pipeline)
+
+	req := makeStreamRequest(t)
+	w := httptest.NewRecorder()
+	h.ChatCompletions(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (headers already sent)", w.Code)
+	}
+
+	body := w.Body.String()
+	if !strings.Contains(body, "event: error") {
+		t.Error("response body should contain 'event: error' when guardrail blocks")
+	}
+	if !strings.Contains(body, "guardrail_block") {
+		t.Error("response body should contain 'guardrail_block' type")
+	}
+	if strings.Contains(body, "data: [DONE]") {
+		t.Error("response body should NOT contain 'data: [DONE]' when guardrail blocks")
+	}
+}
+
+// TEST-60-01-03: Streaming with redacting output guardrail logs and sends [DONE] (audit-only).
+func TestStreamOutputGuardrails_Redact_LogsAndSendsDone(t *testing.T) {
+	chunks := []openaischema.ChatCompletionStreamChunk{
+		makeChunk("some content"),
+	}
+	adapter := newStreamGovAdapter(chunks, nil)
+	pipeline := guardrails.NewPipeline(nil, []guardrails.Stage{&redactOutputStage{}})
+	h := streamGovHandler(t, adapter, pipeline)
+
+	req := makeStreamRequest(t)
+	w := httptest.NewRecorder()
+	h.ChatCompletions(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+
+	body := w.Body.String()
+	// Redact is audit-only — [DONE] should still be sent
+	if !strings.Contains(body, "data: [DONE]") {
+		t.Error("response body should contain 'data: [DONE]' when guardrail redacts (audit-only)")
+	}
+	// No error event for redaction
+	if strings.Contains(body, "event: error") {
+		t.Error("response body should NOT contain 'event: error' when guardrail redacts")
+	}
+}
+
+// TEST-60-01-04: Streaming with pass output guardrail sends [DONE] unchanged.
+func TestStreamOutputGuardrails_Pass_SendsDone(t *testing.T) {
+	chunks := []openaischema.ChatCompletionStreamChunk{
+		makeChunk("clean content"),
+	}
+	adapter := newStreamGovAdapter(chunks, nil)
+	pipeline := guardrails.NewPipeline(nil, []guardrails.Stage{&passOutputStage{}})
+	h := streamGovHandler(t, adapter, pipeline)
+
+	req := makeStreamRequest(t)
+	w := httptest.NewRecorder()
+	h.ChatCompletions(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+
+	body := w.Body.String()
+	if !strings.Contains(body, "data: [DONE]") {
+		t.Error("response body should contain 'data: [DONE]'")
+	}
+	if strings.Contains(body, "event: error") {
+		t.Error("response body should NOT contain 'event: error' when guardrail passes")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// BATCH-60 / TASK-03: Breaker Map LRU Eviction
+// ---------------------------------------------------------------------------
+
+// TEST-60-03-01: Most-active breaker survives eviction.
+func TestGetBreaker_MostActiveSurvivesEviction(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	h := &Handler{
+		logger:   logger,
+		breakers: make(map[string]*breakerEntry),
+	}
+
+	// Populate three entries with distinct lastAccess times.
+	// "stale" is oldest, "mid" is middle, "fresh" is newest.
+	h.breakers["stale:model"] = &breakerEntry{
+		breaker:    circuit.NewBreaker(nil, "stale", "model", logger),
+		lastAccess: time.Now().Add(-2 * time.Hour),
+	}
+	h.breakers["mid:model"] = &breakerEntry{
+		breaker:    circuit.NewBreaker(nil, "mid", "model", logger),
+		lastAccess: time.Now().Add(-1 * time.Hour),
+	}
+	h.breakers["fresh:model"] = &breakerEntry{
+		breaker:    circuit.NewBreaker(nil, "fresh", "model", logger),
+		lastAccess: time.Now(),
+	}
+
+	// Access "fresh" via getBreaker — updates its lastAccess to now
+	b := h.getBreaker("fresh", "model", "")
+	if b == nil {
+		t.Fatal("expected non-nil breaker")
+	}
+
+	// Now fill up to maxBreakers by inserting many new entries.
+	// The LRU eviction should remove "stale" first (oldest lastAccess).
+	for i := 0; i < maxBreakers; i++ {
+		provider := fmt.Sprintf("filler-%d", i)
+		h.getBreaker(provider, "model", "")
+	}
+
+	h.breakersMu.Lock()
+	count := len(h.breakers)
+	_, staleExists := h.breakers["stale:model"]
+	_, freshExists := h.breakers["fresh:model"]
+	h.breakersMu.Unlock()
+
+	// Map should be at or below cap
+	if count > maxBreakers {
+		t.Errorf("breaker count %d exceeds maxBreakers %d", count, maxBreakers)
+	}
+
+	// "stale" should have been evicted (it was the oldest)
+	if staleExists {
+		t.Error("stale entry should have been evicted by LRU")
+	}
+
+	// "fresh" was accessed most recently via getBreaker — should survive
+	if !freshExists {
+		t.Error("fresh entry (most recently accessed) should survive eviction")
+	}
+}
+
+// TEST-60-03-02: Eviction caps at maxBreakers.
+func TestGetBreaker_EvictionCapsAtMax(t *testing.T) {
+	srv, _ := mockProviderServer(t)
+	defer srv.Close()
+	h := testHandler(t, srv.URL)
+
+	// Insert 2*maxBreakers entries — map should never exceed maxBreakers
+	for i := 0; i < maxBreakers*2; i++ {
+		provider := fmt.Sprintf("provider-%d", i)
+		h.getBreaker(provider, "model", "")
+	}
+
+	h.breakersMu.Lock()
+	count := len(h.breakers)
+	h.breakersMu.Unlock()
+
+	if count > maxBreakers {
+		t.Errorf("breaker count %d exceeds maxBreakers %d", count, maxBreakers)
+	}
+}
+
+// TEST-60-03-03: Concurrent getBreaker calls don't race.
+func TestGetBreaker_ConcurrentNoRace(t *testing.T) {
+	srv, _ := mockProviderServer(t)
+	defer srv.Close()
+	h := testHandler(t, srv.URL)
+
+	const goroutines = 100
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+
+	for i := 0; i < goroutines; i++ {
+		go func(idx int) {
+			defer wg.Done()
+			provider := fmt.Sprintf("prov-%d", idx%10) // 10 unique providers
+			h.getBreaker(provider, "model", "us-east")
+		}(i)
+	}
+
+	wg.Wait()
+
+	// If we get here without a race detector firing, the test passes
+	h.breakersMu.Lock()
+	count := len(h.breakers)
+	h.breakersMu.Unlock()
+	if count == 0 {
+		t.Error("expected some breakers to be created")
 	}
 }
