@@ -79,7 +79,7 @@ func TestDashboard_ContainsUISections(t *testing.T) {
 	handler.ServeHTTP(w, req)
 
 	body := w.Body.String()
-	sections := []string{"panel-overview", "panel-keys", "panel-usage", "panel-providers", "panel-logs"}
+	sections := []string{"panel-overview", "panel-keys", "panel-usage", "panel-guardrails", "panel-mcp"}
 	for _, s := range sections {
 		if !strings.Contains(body, s) {
 			t.Errorf("expected section %q in dashboard HTML", s)

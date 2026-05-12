@@ -940,3 +940,147 @@ func TestQuickstart_ConcurrentCreatesSingleProject(t *testing.T) {
 		t.Errorf("expected exactly 1 quickstart project, got %d", count)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// BATCH-62: UX Auth + Navigation tests
+// ---------------------------------------------------------------------------
+
+// loadDashboardHTML reads the embedded dashboard HTML for content verification.
+func loadDashboardHTML(t *testing.T) string {
+	t.Helper()
+	data, err := os.ReadFile("static/index.html")
+	if err != nil {
+		t.Fatalf("failed to read dashboard HTML: %v", err)
+	}
+	return string(data)
+}
+
+// TEST-62-01-01: Dashboard HTML contains login form div with password input.
+func TestDashboard_LoginFormContainsPasswordInput(t *testing.T) {
+	html := loadDashboardHTML(t)
+
+	// Verify login-form div exists
+	if !bytes.Contains([]byte(html), []byte(`id="login-form"`)) {
+		t.Error("dashboard HTML missing div with id='login-form'")
+	}
+
+	// Verify password input exists
+	if !bytes.Contains([]byte(html), []byte(`type="password"`)) {
+		t.Error("dashboard HTML missing input with type='password'")
+	}
+
+	// Verify submit button exists
+	if !bytes.Contains([]byte(html), []byte(`id="login-submit"`)) {
+		t.Error("dashboard HTML missing button with id='login-submit'")
+	}
+}
+
+// TEST-62-01-02: Dashboard HTML has no prompt() call.
+func TestDashboard_NoPromptCall(t *testing.T) {
+	html := loadDashboardHTML(t)
+
+	if bytes.Contains([]byte(html), []byte("prompt(")) {
+		t.Error("dashboard HTML contains prompt() call — must be removed per HB-01")
+	}
+}
+
+// TEST-62-01-03: Dashboard HTML contains login-form div and localStorage removeItem on 401.
+func TestDashboard_LoginFormShowsOnPageLoad(t *testing.T) {
+	html := loadDashboardHTML(t)
+
+	// Verify login-form div exists with hidden class (shown via JS when no token)
+	if !bytes.Contains([]byte(html), []byte(`id="login-form"`)) {
+		t.Error("dashboard HTML missing div with id='login-form'")
+	}
+
+	// Verify localStorage.removeItem('admin_token') on 401
+	if !bytes.Contains([]byte(html), []byte("localStorage.removeItem('admin_token')")) {
+		t.Error("dashboard HTML missing localStorage.removeItem('admin_token') for 401 handling")
+	}
+}
+
+// TEST-62-02-01: Dashboard has exactly 5 tab elements with role="tab".
+func TestDashboard_HasExactlyFiveTabs(t *testing.T) {
+	html := loadDashboardHTML(t)
+
+	tabCount := bytes.Count([]byte(html), []byte(`role="tab"`))
+	if tabCount != 5 {
+		t.Errorf("expected exactly 5 elements with role='tab', got %d", tabCount)
+	}
+}
+
+// TEST-62-02-02: Dashboard contains all original data panels (spend, providers, request-log content).
+func TestDashboard_ContainsAllMergedPanels(t *testing.T) {
+	html := loadDashboardHTML(t)
+
+	// Spend data should still be present (Budget Overview, Per-Key Budget Utilization)
+	if !bytes.Contains([]byte(html), []byte("Budget Overview")) {
+		t.Error("dashboard HTML missing 'Budget Overview' — spend data lost in consolidation")
+	}
+	if !bytes.Contains([]byte(html), []byte("Per-Key Budget Utilization")) {
+		t.Error("dashboard HTML missing 'Per-Key Budget Utilization' — spend data lost in consolidation")
+	}
+
+	// Providers data should still be present (Provider Health, provider-cards)
+	if !bytes.Contains([]byte(html), []byte("Provider Health")) {
+		t.Error("dashboard HTML missing 'Provider Health' — providers data lost in consolidation")
+	}
+	if !bytes.Contains([]byte(html), []byte(`id="provider-cards"`)) {
+		t.Error("dashboard HTML missing id='provider-cards' — providers data lost in consolidation")
+	}
+
+	// Request Log data should still be present
+	if !bytes.Contains([]byte(html), []byte("Request Log")) {
+		t.Error("dashboard HTML missing 'Request Log' — request log data lost in consolidation")
+	}
+	if !bytes.Contains([]byte(html), []byte(`id="logs-table"`)) {
+		t.Error("dashboard HTML missing id='logs-table' — request log data lost in consolidation")
+	}
+}
+
+// TEST-62-02-03: Guardrail catalog cards have onclick prefill handler.
+func TestDashboard_GuardrailCatalogHasPrefill(t *testing.T) {
+	html := loadDashboardHTML(t)
+
+	// Verify prefillGuardrailTest function exists
+	if !bytes.Contains([]byte(html), []byte("prefillGuardrailTest")) {
+		t.Error("dashboard HTML missing prefillGuardrailTest function — guardrail catalog prefill not implemented")
+	}
+
+	// Verify catalog cards have onclick calling prefillGuardrailTest
+	if !bytes.Contains([]byte(html), []byte(`onclick="prefillGuardrailTest(`)) {
+		t.Error("dashboard HTML missing onclick='prefillGuardrailTest()' on catalog cards")
+	}
+}
+
+// TEST-62-03-01: All tabs have aria-selected attribute.
+func TestDashboard_TabsHaveAriaSelected(t *testing.T) {
+	html := loadDashboardHTML(t)
+
+	ariaSelectedCount := bytes.Count([]byte(html), []byte("aria-selected="))
+	if ariaSelectedCount < 5 {
+		t.Errorf("expected at least 5 aria-selected attributes (one per tab), got %d", ariaSelectedCount)
+	}
+
+	// Verify aria-controls on tabs
+	ariaControlsCount := bytes.Count([]byte(html), []byte("aria-controls="))
+	if ariaControlsCount < 5 {
+		t.Errorf("expected at least 5 aria-controls attributes (one per tab), got %d", ariaControlsCount)
+	}
+}
+
+// TEST-62-03-02: All panels have role="tabpanel".
+func TestDashboard_PanelsHaveRoleTabpanel(t *testing.T) {
+	html := loadDashboardHTML(t)
+
+	tabpanelCount := bytes.Count([]byte(html), []byte(`role="tabpanel"`))
+	if tabpanelCount != 5 {
+		t.Errorf("expected exactly 5 elements with role='tabpanel', got %d", tabpanelCount)
+	}
+
+	// Verify aria-labelledby on panels
+	ariaLabelledByCount := bytes.Count([]byte(html), []byte("aria-labelledby="))
+	if ariaLabelledByCount < 5 {
+		t.Errorf("expected at least 5 aria-labelledby attributes (one per panel), got %d", ariaLabelledByCount)
+	}
+}
