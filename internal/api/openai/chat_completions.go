@@ -43,7 +43,7 @@ type Handler struct {
 	limiters         map[string]*ratelimit.Limiter
 	redisClient      *rediscli.Client
 	breakersMu       sync.Mutex
-	breakers         map[string]*circuit.Breaker
+	breakers         map[string]*breakerEntry
 	prices           *billing.PriceTable
 	usageW           *usageapi.Writer
 	metrics          *metrics.Collector
@@ -69,7 +69,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, router *routing.Router, 
 		adapters:         adapters,
 		keys:             keys,
 		limiters:         make(map[string]*ratelimit.Limiter),
-		breakers:         make(map[string]*circuit.Breaker),
+		breakers:         make(map[string]*breakerEntry),
 		redisClient:      redisClient,
 		prices:           prices,
 		usageW:           usageW,
@@ -314,11 +314,59 @@ func (h *Handler) streamChatCompletions(w http.ResponseWriter, r *http.Request, 
 	// Accumulate tokens from SSE chunks (final chunk may carry usage)
 	var promptTokens, completionTokens int
 	chunkCount := 0
+	var accumulatedContent string
 	var streamErr error
 	for {
 		select {
 		case chunk, ok := <-stream.Chunks:
 			if !ok {
+				// Stream complete — run output guardrails on accumulated content before [DONE]
+				if h.guardrails != nil && h.shouldRunOutputGuardrails(req.Model) {
+					result, grErr := h.guardrails.CheckOutput(r.Context(), accumulatedContent)
+					if grErr != nil {
+						h.logger.Error("streaming output guardrail check failed",
+							"request_id", requestID,
+							"model", req.Model,
+							"error", grErr,
+						)
+						errJSON, _ := json.Marshal(map[string]any{
+							"error": map[string]string{
+								"type":    "guardrail_error",
+								"message": "guardrail check failed",
+								"stage":   "output",
+							},
+						})
+						fmt.Fprintf(w, "event: error\ndata: %s\n\n", errJSON)
+						flusher.Flush()
+						return
+					}
+					if result.Action == guardrails.Block {
+						h.logger.Warn("streaming output guardrail blocked",
+							"request_id", requestID,
+							"model", req.Model,
+							"stage", result.StageName,
+							"reason", result.Message,
+						)
+						errJSON, _ := json.Marshal(map[string]any{
+							"error": map[string]string{
+								"type":    "guardrail_block",
+								"message": result.Message,
+								"stage":   result.StageName,
+							},
+						})
+						fmt.Fprintf(w, "event: error\ndata: %s\n\n", errJSON)
+						flusher.Flush()
+						return
+					}
+					if result.Action == guardrails.Redact {
+						h.logger.Info("streaming output guardrail redaction (audit-only)",
+							"request_id", requestID,
+							"model", req.Model,
+							"stage", result.StageName,
+						)
+					}
+				}
+
 				_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
 				flusher.Flush()
 
@@ -345,6 +393,16 @@ func (h *Handler) streamChatCompletions(w http.ResponseWriter, r *http.Request, 
 			if chunk.Usage != nil {
 				promptTokens = chunk.Usage.PromptTokens
 				completionTokens = chunk.Usage.CompletionTokens
+			}
+
+			// Accumulate content deltas for output guardrail check
+			for _, choice := range chunk.Choices {
+				if len(choice.Delta.Content) > 0 {
+					var content string
+					if err := json.Unmarshal(choice.Delta.Content, &content); err == nil {
+						accumulatedContent += content
+					}
+				}
 			}
 
 			data, err := json.Marshal(chunk)
@@ -652,6 +710,12 @@ func (h *Handler) getLimiter(keyID string, rpm, tpm int) ratelimit.RateLimiter {
 	return l
 }
 
+// breakerEntry wraps a circuit breaker with last-access time for LRU eviction.
+type breakerEntry struct {
+	breaker    *circuit.Breaker
+	lastAccess time.Time
+}
+
 // maxBreakers caps the circuit breaker map to prevent unbounded growth.
 const maxBreakers = 1000
 
@@ -663,16 +727,29 @@ func (h *Handler) getBreaker(provider, model, region string) *circuit.Breaker {
 	if region != "" {
 		key = provider + ":" + region + ":" + model
 	}
-	b, ok := h.breakers[key]
-	if !ok {
-		b = circuit.NewBreaker(h.redisClient, provider, model, h.logger)
-		h.breakers[key] = b
-		// Evict if over cap
-		for len(h.breakers) > maxBreakers {
-			for k := range h.breakers {
-				delete(h.breakers, k)
-				break
+	entry, ok := h.breakers[key]
+	if ok {
+		entry.lastAccess = time.Now()
+		return entry.breaker
+	}
+
+	b := circuit.NewBreaker(h.redisClient, provider, model, h.logger)
+	h.breakers[key] = &breakerEntry{breaker: b, lastAccess: time.Now()}
+
+	// Evict oldest (LRU) if over cap
+	for len(h.breakers) > maxBreakers {
+		var oldestKey string
+		var oldestTime time.Time
+		first := true
+		for k, e := range h.breakers {
+			if first || e.lastAccess.Before(oldestTime) {
+				oldestKey = k
+				oldestTime = e.lastAccess
+				first = false
 			}
+		}
+		if oldestKey != "" {
+			delete(h.breakers, oldestKey)
 		}
 	}
 	return b
