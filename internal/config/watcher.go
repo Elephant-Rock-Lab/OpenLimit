@@ -142,7 +142,7 @@ func (w *Watcher) tryReload(lastMod *time.Time) {
 	w.lastReload = time.Now()
 
 	if w.onChange != nil {
-		w.onChange(old, newCfg)
+		w.onChange(old, newCfg.DeepCopy())
 	}
 
 	w.logger.Info("config reloaded",

@@ -62,7 +62,7 @@ func (h *Handler) Embeddings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bodyBytes, err := io.ReadAll(r.Body)
+	bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, providers.MaxProviderResponseSize))
 	if err != nil {
 		writeError(w, r, http.StatusBadRequest, "invalid_request", "failed to read request body")
 		return
@@ -102,12 +102,17 @@ func (h *Handler) Embeddings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Budget check (when auth context provides budget)
+	// Budget check (consolidated via usage.CheckBudget)
 	if authCtx != nil && authCtx.BudgetLimitUSD > 0 && h.usageW != nil {
-		spent, err := usage.GetSpendForCurrentPeriod(r.Context(), h.usageW.DB(), authCtx.VirtualKeyID, authCtx.BudgetPeriod)
-		if err == nil && spent >= authCtx.BudgetLimitUSD {
+		result, budgetErr := usage.CheckBudget(r.Context(), h.usageW.DB(), authCtx.VirtualKeyID, authCtx.BudgetPeriod, authCtx.BudgetLimitUSD, h.budgetFailClosed)
+		if budgetErr != nil {
 			h.metrics.RecordBudgetRejection(authCtx.KeyPrefix, authCtx.ProjectID)
-			writeError(w, r, http.StatusForbidden, "budget_exceeded", fmt.Sprintf("budget exceeded: $%.2f of $%.2f", spent, authCtx.BudgetLimitUSD))
+			writeError(w, r, http.StatusServiceUnavailable, "budget_check_failed", budgetErr.Error())
+			return
+		}
+		if !result.Allowed {
+			h.metrics.RecordBudgetRejection(authCtx.KeyPrefix, authCtx.ProjectID)
+			writeError(w, r, http.StatusForbidden, "budget_exceeded", fmt.Sprintf("budget exceeded: $%.2f of $%.2f", result.Spend, authCtx.BudgetLimitUSD))
 			return
 		}
 	}
@@ -169,6 +174,35 @@ func (h *Handler) Embeddings(w http.ResponseWriter, r *http.Request) {
 		virtualKeyID = authCtx.VirtualKeyID
 	}
 
+	// Usage logging (HB-02: must be called after successful response)
+	if authCtx != nil && h.usageW != nil {
+		promptTokens := 0
+		totalTokens := 0
+		if resp.Usage != nil {
+			promptTokens = resp.Usage.PromptTokens
+			totalTokens = resp.Usage.TotalTokens
+		}
+		cost := 0.0
+		if h.prices != nil {
+			cost = h.prices.CalculateCost(target.Provider, target.Model, promptTokens, 0)
+		}
+		h.usageW.Record(usage.Entry{
+			ProjectID:        projectID,
+			VirtualKeyID:     virtualKeyID,
+			Model:            req.Model,
+			Provider:         target.Provider,
+			ProviderModel:    target.Model,
+			PromptTokens:     promptTokens,
+			CompletionTokens: 0,
+			TotalTokens:      totalTokens,
+			CostUSD:          cost,
+			CacheHit:         false,
+			Stream:           false,
+			Attempts:         attempts,
+			DurationMS:       time.Since(start).Milliseconds(),
+		})
+	}
+
 	h.logger.Info("embeddings proxied",
 		"request_id", requestID,
 		"model", req.Model,
@@ -204,6 +238,14 @@ func (h *Handler) executeEmbeddingsPlan(ctx context.Context, req EmbeddingsReque
 			continue
 		}
 		keyRing := h.keys[target.Provider]
+
+		// Circuit breaker check
+		breaker := h.getBreaker(target.Provider, target.Model, "")
+		if breaker != nil && !breaker.Allow() {
+			h.metrics.RecordCircuitBreakerRejection(target.Provider, target.Model)
+			lastErr = fmt.Errorf("circuit breaker open for %s/%s", target.Provider, target.Model)
+			continue
+		}
 
 		for attempt := 1; attempt <= attemptsPerTarget; attempt++ {
 			key, keyErr := h.nextProviderKey(target.Provider, keyRing)
@@ -280,7 +322,7 @@ func callProviderEmbeddings(ctx context.Context, baseURL string, body []byte, ke
 	}
 	defer resp.Body.Close()
 
-	data, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, providers.MaxProviderResponseSize))
 	if err != nil {
 		return nil, fmt.Errorf("read provider response: %w", err)
 	}

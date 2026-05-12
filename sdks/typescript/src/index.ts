@@ -1,5 +1,6 @@
 export { OpenLimitClient } from './client';
-export { APIError, TimeoutError } from './errors';
+export { OpenLimitAdmin } from './admin';
+export { APIError, TimeoutError, NetworkError } from './errors';
 export { parseSSEResponse } from './streaming';
 export type {
   OpenLimitConfig,
@@ -18,4 +19,16 @@ export type {
   ModelInfo,
   HealthResponse,
   ErrorResponse,
+  // Admin types
+  AdminConfig,
+  Project,
+  VirtualKey,
+  CreateKeyRequest,
+  CreateKeyResponse,
+  UsageEntry,
+  UsageSummaryEntry,
+  UsageFilters,
+  UsageSummaryFilters,
+  QuickstartOptions,
+  QuickstartResponse,
 } from './types';

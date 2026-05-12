@@ -248,3 +248,115 @@ func TestWatcher_MergeReloadableOnlyTargetFields(t *testing.T) {
 		t.Errorf("expected redis addr to remain unchanged, got %q", dst.Redis.Addr)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// BATCH-39 TASK-05: Config deep copy tests
+// ---------------------------------------------------------------------------
+
+func TestConfigDeepCopy_IndependentMaps(t *testing.T) {
+	// TEST-39-05-01: DeepCopy produces an independent copy
+	original := Config{
+		Providers: map[string]ProviderConfig{
+			"openai": {Type: "openai", BaseURL: "https://api.openai.com/v1"},
+		},
+		Models: map[string]ModelConfig{
+			"gpt-4": {},
+		},
+	}
+
+	cp := original.DeepCopy()
+
+	// Mutate copy
+	cp.Providers["anthropic"] = ProviderConfig{Type: "anthropic"}
+	cp.Providers["openai"] = ProviderConfig{Type: "openai", BaseURL: "https://modified"}
+	cp.Models["claude-3"] = ModelConfig{}
+
+	// Original should be unchanged
+	if _, ok := original.Providers["anthropic"]; ok {
+		t.Error("original.Providers should not contain 'anthropic' added to copy")
+	}
+	if original.Providers["openai"].BaseURL != "https://api.openai.com/v1" {
+		t.Errorf("original.Providers[openai].BaseURL was mutated: %q", original.Providers["openai"].BaseURL)
+	}
+	if _, ok := original.Models["claude-3"]; ok {
+		t.Error("original.Models should not contain 'claude-3' added to copy")
+	}
+}
+
+func TestWatcher_OnChangeReceivesDeepCopy(t *testing.T) {
+	// TEST-39-05-02: onChange callback receives a deep copy
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "test.yaml")
+
+	initialYAML := `
+logging:
+  level: info
+providers:
+  openai:
+    type: openai
+models: {}
+`
+	if err := os.WriteFile(cfgPath, []byte(initialYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	initial, err := Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var mu sync.Mutex
+	var receivedConfig Config
+
+	onChange := func(old, new Config) {
+		mu.Lock()
+		defer mu.Unlock()
+		receivedConfig = new
+		// Mutate the received config to test independence
+		new.Providers["injected"] = ProviderConfig{Type: "injected"}
+		new.Logging.Level = "mutated"
+	}
+
+	w := NewWatcher(cfgPath, initial, onChange, slog.Default())
+
+	// Write updated config
+	updatedYAML := `
+logging:
+  level: debug
+providers:
+  openai:
+    type: openai
+models: {}
+`
+	time.Sleep(50 * time.Millisecond)
+	if err := os.WriteFile(cfgPath, []byte(updatedYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	info, _ := os.Stat(cfgPath)
+	lastMod := info.ModTime()
+	// Manually call tryReload to ensure it fires
+	w.lastReload = time.Time{} // reset debounce
+	w.tryReload(&lastMod)
+	time.Sleep(100 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Verify the watcher's stored current config was NOT mutated by callback
+	// Access w.current through a poll-based check: try to read w.current
+	// Since w.current is set after tryReload, we can check it indirectly
+	// by looking at the Providers map
+	currentProviders := w.current.Providers
+	if _, ok := currentProviders["injected"]; ok {
+		t.Error("watcher.current should NOT contain 'injected' — deep copy failed")
+	}
+	if w.current.Logging.Level == "mutated" {
+		t.Error("watcher.current.Logging.Level should NOT be 'mutated' — deep copy failed")
+	}
+
+	// Verify the received config was valid at receipt time
+	if receivedConfig.Logging.Level != "debug" {
+		t.Errorf("received config should have level 'debug', got %q", receivedConfig.Logging.Level)
+	}
+}

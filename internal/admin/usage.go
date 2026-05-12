@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"openlimit/internal/store"
+	usage "openlimit/internal/usage"
 )
 
 func (h *Handler) usage(w http.ResponseWriter, r *http.Request) {
@@ -26,6 +29,10 @@ func (h *Handler) usage(w http.ResponseWriter, r *http.Request) {
 	limit := 100
 	if l, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && l > 0 && l <= 1000 {
 		limit = l
+	}
+	offset := 0
+	if o, err := strconv.Atoi(r.URL.Query().Get("offset")); err == nil && o >= 0 {
+		offset = o
 	}
 
 	args := []any{}
@@ -68,6 +75,19 @@ func (h *Handler) usage(w http.ResponseWriter, r *http.Request) {
 	                  cache_hit, stream, attempts, duration_ms, error, created_at
 	           FROM usage_logs ` + where + ` ORDER BY created_at DESC LIMIT $` + strconv.Itoa(argN)
 	args = append(args, limit)
+
+	// BATCH-29 TASK-01: offset support
+	argN++
+	query += ` OFFSET $` + strconv.Itoa(argN)
+	args = append(args, offset)
+
+	// Count query for X-Total-Count
+	countQuery := `SELECT COUNT(*) FROM usage_logs ` + where
+	var totalCount int
+	countArgs := args[:len(args)-2] // exclude LIMIT and OFFSET args
+	if err := h.db.QueryRowContext(r.Context(), countQuery, countArgs...).Scan(&totalCount); err != nil {
+		totalCount = 0
+	}
 
 	rows, err := h.db.QueryContext(r.Context(), query, args...)
 	if err != nil {
@@ -116,6 +136,7 @@ func (h *Handler) usage(w http.ResponseWriter, r *http.Request) {
 	if result == nil {
 		result = []usageRow{}
 	}
+	w.Header().Set("X-Total-Count", strconv.Itoa(totalCount))
 	writeAdminJSON(w, http.StatusOK, result)
 }
 
@@ -205,6 +226,110 @@ func (h *Handler) usageSummary(w http.ResponseWriter, r *http.Request) {
 		result = []summaryRow{}
 	}
 	writeAdminJSON(w, http.StatusOK, result)
+}
+
+// computeKeyStatus returns a budget utilization status string based on spend vs budget limit.
+// Returns "unlimited" when budgetLimit is 0, "healthy" when utilization < 75%,
+// "warning" when 75% <= utilization <= 95%, and "critical" when utilization > 95%.
+func computeKeyStatus(spend, budgetLimit float64) string {
+	if budgetLimit <= 0 {
+		return "unlimited"
+	}
+	utilizationPct := (spend / budgetLimit) * 100
+	if utilizationPct > 95 {
+		return "critical"
+	}
+	if utilizationPct >= 75 {
+		return "warning"
+	}
+	return "healthy"
+}
+
+// spend handles GET /admin/usage/spend.
+// It returns per-key budget utilization data.
+// spend_usd is computed as SUM(cost_usd) from usage_logs for the current period.
+func (h *Handler) spend(w http.ResponseWriter, r *http.Request) {
+	actor := h.requireRole(w, r, "usage:read")
+	if actor == nil {
+		return
+	}
+
+	period := r.URL.Query().Get("period")
+	if period == "" {
+		period = "monthly"
+	}
+
+	if h.db == nil {
+		writeAdminJSON(w, http.StatusOK, map[string]any{
+			"period":           period,
+			"keys":             []any{},
+			"total_spend_usd":  0,
+			"total_budget_usd": 0,
+		})
+		return
+	}
+
+	// List all virtual keys (empty projectID = all projects)
+	keys, err := store.ListVirtualKeys(r.Context(), h.db, "", 0, 0)
+	if err != nil {
+		writeAdminError(w, r, http.StatusInternalServerError, "internal_error", "failed to list virtual keys")
+		return
+	}
+
+	type keySpend struct {
+		KeyID          string  `json:"key_id"`
+		KeyName        string  `json:"key_name"`
+		KeyPrefix      string  `json:"key_prefix"`
+		SpendUSD       float64 `json:"spend_usd"`
+		BudgetLimitUSD float64 `json:"budget_limit_usd"`
+		BudgetPeriod   string  `json:"budget_period"`
+		UtilizationPct float64 `json:"utilization_pct"`
+		Status         string  `json:"status"`
+	}
+
+	var result []keySpend
+	var totalSpend, totalBudget float64
+
+	for _, k := range keys {
+		spend, err := usage.GetSpendForCurrentPeriod(r.Context(), h.db, k.ID, period)
+		if err != nil {
+			// Log but continue — don't fail the whole request for one key
+			spend = 0
+		}
+
+		budgetLimit := k.BudgetLimitUSD
+		var utilizationPct float64
+		if budgetLimit > 0 {
+			utilizationPct = (spend / budgetLimit) * 100
+		}
+
+		status := computeKeyStatus(spend, budgetLimit)
+
+		totalSpend += spend
+		totalBudget += budgetLimit
+
+		result = append(result, keySpend{
+			KeyID:          k.ID,
+			KeyName:        k.Name,
+			KeyPrefix:      k.KeyPrefix,
+			SpendUSD:       spend,
+			BudgetLimitUSD: budgetLimit,
+			BudgetPeriod:   k.BudgetPeriod,
+			UtilizationPct: utilizationPct,
+			Status:         status,
+		})
+	}
+
+	if result == nil {
+		result = []keySpend{}
+	}
+
+	writeAdminJSON(w, http.StatusOK, map[string]any{
+		"period":           period,
+		"keys":             result,
+		"total_spend_usd":  totalSpend,
+		"total_budget_usd": totalBudget,
+	})
 }
 
 // Helper to suppress unused import warning

@@ -876,3 +876,67 @@ func TestQuickstart_EmptyBody_Returns400(t *testing.T) {
 		t.Fatalf("expected 400 for nil body, got %d; body: %s", w.Code, w.Body.String())
 	}
 }
+
+// ---------------------------------------------------------------------------
+// BATCH-61 / TASK-03: Quickstart duplicate guard
+// ---------------------------------------------------------------------------
+
+// TEST-61-03-01: Concurrent quickstart creates only 1 project.
+// Two quickstart calls on the same day should result in exactly 1 project
+// (the second call reuses the project created by the first).
+func TestQuickstart_ConcurrentCreatesSingleProject(t *testing.T) {
+	h, db := newTestHandler(t)
+	defer db.Close()
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	authed := http.NewServeMux()
+	authed.Handle("/", BearerAuth("test-admin-token", nil, nil, nil, mux))
+
+	// First quickstart call
+	req1 := httptest.NewRequest(http.MethodPost, "/admin/quickstart", bytes.NewBufferString(`{}`))
+	req1.Header.Set("Authorization", "Bearer test-admin-token")
+	w1 := httptest.NewRecorder()
+	authed.ServeHTTP(w1, req1)
+
+	if w1.Code != http.StatusCreated {
+		t.Fatalf("first call: expected 201, got %d; body: %s", w1.Code, w1.Body.String())
+	}
+
+	// Second quickstart call (same day)
+	req2 := httptest.NewRequest(http.MethodPost, "/admin/quickstart", bytes.NewBufferString(`{}`))
+	req2.Header.Set("Authorization", "Bearer test-admin-token")
+	w2 := httptest.NewRecorder()
+	authed.ServeHTTP(w2, req2)
+
+	if w2.Code != http.StatusCreated {
+		t.Fatalf("second call: expected 201, got %d; body: %s", w2.Code, w2.Body.String())
+	}
+
+	// Parse both responses and verify they reference the same project
+	var resp1, resp2 map[string]any
+	json.Unmarshal(w1.Body.Bytes(), &resp1)
+	json.Unmarshal(w2.Body.Bytes(), &resp2)
+
+	proj1, _ := resp1["project"].(map[string]any)
+	proj2, _ := resp2["project"].(map[string]any)
+
+	if proj1["id"] != proj2["id"] {
+		t.Errorf("both quickstart calls should reference the same project, got %v and %v", proj1["id"], proj2["id"])
+	}
+
+	// Verify exactly 1 project with quickstart- prefix for today
+	rows, err := db.Query("SELECT COUNT(*) FROM projects WHERE name LIKE 'quickstart-%'")
+	if err != nil {
+		t.Fatalf("failed to count projects: %v", err)
+	}
+	defer rows.Close()
+	var count int
+	if rows.Next() {
+		rows.Scan(&count)
+	}
+	if count != 1 {
+		t.Errorf("expected exactly 1 quickstart project, got %d", count)
+	}
+}

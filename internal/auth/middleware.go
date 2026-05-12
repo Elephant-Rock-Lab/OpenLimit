@@ -3,11 +3,12 @@ package auth
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
 
-	"fmt"
 	"openlimit/internal/config"
 	"openlimit/internal/store"
 	"openlimit/internal/usage"
@@ -16,9 +17,10 @@ import (
 // Middleware authenticates requests using virtual API keys.
 // When auth is disabled, all requests pass through.
 type Middleware struct {
-	cfg   config.AuthConfig
-	db    *sql.DB
-	cache *KeyCache
+	cfg              config.AuthConfig
+	db               *sql.DB
+	cache            *KeyCache
+	budgetFailClosed bool
 }
 
 // NewMiddleware creates a new auth middleware.
@@ -84,6 +86,16 @@ func (m *Middleware) authenticate(r *http.Request, token string) (*Context, erro
 	// DB lookup via bcrypt comparison
 	vk, err := store.LookupVirtualKeyByToken(r.Context(), m.db, token)
 	if err != nil {
+		// If this looks like a DB error (not "key not found"), try grace-period cache
+		if m.cache != nil && isDBError(err) {
+			if authCtx, ok := m.cache.GetWithGrace(token, 5*time.Minute); ok {
+				if !authCtx.IsExpired() {
+					log.Printf("[WARN] auth: DB unavailable, serving key from grace-period cache (key=%s)", token[:min(8, len(token))]+"...")
+					return authCtx, nil
+				}
+			}
+			return nil, &authError{message: "service temporarily unavailable"}
+		}
 		return nil, &authError{message: "invalid virtual key"}
 	}
 
@@ -93,10 +105,13 @@ func (m *Middleware) authenticate(r *http.Request, token string) (*Context, erro
 		return nil, &authError{message: "virtual key has expired"}
 	}
 
-	// Budget enforcement
+	// Budget enforcement (consolidated via usage.CheckBudget)
 	if authCtx.BudgetLimitUSD > 0 {
-		spend, err := usage.GetSpendForCurrentPeriod(r.Context(), m.db, authCtx.VirtualKeyID, authCtx.BudgetPeriod)
-		if err == nil && spend >= authCtx.BudgetLimitUSD {
+		result, budgetErr := usage.CheckBudget(r.Context(), m.db, authCtx.VirtualKeyID, authCtx.BudgetPeriod, authCtx.BudgetLimitUSD, m.budgetFailClosed)
+		if budgetErr != nil {
+			return nil, &authError{message: budgetErr.Error()}
+		}
+		if !result.Allowed {
 			return nil, &authError{message: fmt.Sprintf("budget exceeded: $%.2f %s limit reached", authCtx.BudgetLimitUSD, authCtx.BudgetPeriod)}
 		}
 	}
@@ -109,11 +124,30 @@ func (m *Middleware) authenticate(r *http.Request, token string) (*Context, erro
 	return authCtx, nil
 }
 
+// isDBError returns true if the error indicates a database connectivity problem
+// rather than a simple "not found" result.
+func isDBError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	// The "no matching virtual key found" is a normal lookup miss, not a DB error.
+	if msg == "no matching virtual key found" {
+		return false
+	}
+	return true
+}
+
 // InvalidateCache removes a cached entry.
 func (m *Middleware) InvalidateCache(token string) {
 	if m.cache != nil {
 		m.cache.Invalidate(token)
 	}
+}
+
+// SetBudgetFailClosed configures whether budget checks reject on DB errors.
+func (m *Middleware) SetBudgetFailClosed(failClosed bool) {
+	m.budgetFailClosed = failClosed
 }
 
 func extractBearerToken(r *http.Request) string {
@@ -123,6 +157,10 @@ func extractBearerToken(r *http.Request) string {
 	}
 	token := strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
 	if !strings.HasPrefix(token, "gw-") {
+		return ""
+	}
+	// Reject tokens shorter than "gw-" + 8 chars (minimum key body)
+	if len(token) < 11 {
 		return ""
 	}
 	return token

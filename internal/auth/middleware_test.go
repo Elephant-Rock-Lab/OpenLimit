@@ -1,9 +1,11 @@
 package auth
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"openlimit/internal/config"
 )
@@ -158,17 +160,102 @@ func TestKeyCacheInvalidate(t *testing.T) {
 	}
 }
 
+func TestGetWithGrace_FreshEntry(t *testing.T) {
+	cache := NewKeyCache(10, 60*1e9) // 60s TTL
+	authCtx := &Context{ProjectID: "test", VirtualKeyID: "key1"}
+	cache.Set("token1", authCtx)
+
+	// Fresh entry should be served via GetWithGrace even with 0 grace
+	got, ok := cache.GetWithGrace("token1", 0)
+	if !ok {
+		t.Fatal("expected GetWithGrace hit for fresh entry")
+	}
+	if got.VirtualKeyID != "key1" {
+		t.Fatalf("expected key1, got %s", got.VirtualKeyID)
+	}
+}
+
+func TestGetWithGrace_ExpiredWithinGrace(t *testing.T) {
+	cache := NewKeyCache(10, 1*time.Nanosecond) // extremely short TTL
+	authCtx := &Context{ProjectID: "test", VirtualKeyID: "key2"}
+	cache.Set("token1", authCtx)
+
+	// Wait for entry to expire
+	time.Sleep(1 * time.Millisecond)
+
+	// Regular Get should miss
+	_, ok := cache.Get("token1")
+	if ok {
+		t.Fatal("expected regular Get to miss for expired entry")
+	}
+
+	// GetWithGrace with 5-minute grace should still hit
+	got, ok := cache.GetWithGrace("token1", 5*time.Minute)
+	if !ok {
+		t.Fatal("expected GetWithGrace hit within grace period")
+	}
+	if got.VirtualKeyID != "key2" {
+		t.Fatalf("expected key2, got %s", got.VirtualKeyID)
+	}
+}
+
+func TestGetWithGrace_ExpiredBeyondGrace(t *testing.T) {
+	cache := NewKeyCache(10, 1*time.Nanosecond) // extremely short TTL
+	authCtx := &Context{ProjectID: "test", VirtualKeyID: "key3"}
+	cache.Set("token1", authCtx)
+
+	// Wait for entry to be well beyond any reasonable grace
+	time.Sleep(10 * time.Millisecond)
+
+	// GetWithGrace with very short grace should miss
+	_, ok := cache.GetWithGrace("token1", 1*time.Nanosecond)
+	if ok {
+		t.Fatal("expected GetWithGrace miss for entry beyond grace")
+	}
+}
+
+func TestGetWithGrace_CacheMiss(t *testing.T) {
+	cache := NewKeyCache(10, 60*1e9)
+
+	_, ok := cache.GetWithGrace("nonexistent", 5*time.Minute)
+	if ok {
+		t.Fatal("expected GetWithGrace miss for nonexistent key")
+	}
+}
+
+func TestIsDBError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"not found", fmt.Errorf("no matching virtual key found"), false},
+		{"connection refused", fmt.Errorf("connection refused"), true},
+		{"sql error", fmt.Errorf("pq: unexpected EOF"), true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isDBError(tt.err); got != tt.want {
+				t.Errorf("isDBError(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestExtractBearerToken(t *testing.T) {
 	tests := []struct {
 		name string
 		auth string
 		want string
 	}{
-		{"valid", "Bearer gw-abc123", "gw-abc123"},
+		{"valid", "Bearer gw-abc1234567", "gw-abc1234567"},
 		{"missing prefix", "Bearer abc123", ""},
-		{"wrong scheme", "Basic gw-abc123", ""},
+		{"wrong scheme", "Basic gw-abc1234567", ""},
 		{"empty", "", ""},
-		{"with spaces", "Bearer  gw-abc123 ", "gw-abc123"},
+		{"with spaces", "Bearer  gw-abc1234567 ", "gw-abc1234567"},
+		{"too short", "Bearer gw-abc", ""},
 	}
 
 	for _, tt := range tests {

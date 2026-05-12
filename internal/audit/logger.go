@@ -13,6 +13,7 @@ import (
 type Logger struct {
 	db     *sql.DB
 	events chan Event
+	done   chan struct{}
 	logger *slog.Logger
 }
 
@@ -28,6 +29,7 @@ func NewLogger(db *sql.DB, logger *slog.Logger, bufferSize int) *Logger {
 	l := &Logger{
 		db:     db,
 		events: make(chan Event, bufferSize),
+		done:   make(chan struct{}),
 		logger: logger,
 	}
 	go l.process()
@@ -72,9 +74,13 @@ func (l *Logger) Close() {
 		return
 	}
 	close(l.events)
+	if l.done != nil {
+		<-l.done // Wait for process() to finish draining
+	}
 }
 
 func (l *Logger) process() {
+	defer close(l.done)
 	for e := range l.events {
 		if err := l.write(e); err != nil {
 			l.logger.Error("failed to write audit event",

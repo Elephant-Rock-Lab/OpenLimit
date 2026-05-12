@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -309,7 +310,7 @@ func TestSessionCreationAndEviction(t *testing.T) {
 	}
 
 	// Manually age the session so eviction will pick it up
-	sess.lastSeen = time.Now().Add(-100 * time.Millisecond)
+	sess.lastSeen.Store(time.Now().Add(-100 * time.Millisecond).UnixNano())
 
 	// Wait for eviction cycle (30s ticker, but we need to wait longer for the goroutine)
 	// Since the ticker is 30s, just remove it manually for this test
@@ -342,6 +343,68 @@ func TestSessionBroadcast(t *testing.T) {
 	}
 	if notif.Method != "notifications/tools/list_changed" {
 		t.Errorf("expected method 'notifications/tools/list_changed', got %q", notif.Method)
+	}
+}
+
+// TestHandleToolsCallHasTimeout verifies that handleToolsCall creates a context
+// with a 5-minute deadline, preventing goroutine leaks on hanging provider calls.
+func TestHandleToolsCallHasTimeout(t *testing.T) {
+	var receivedCtx context.Context
+	exec := func(ctx context.Context, toolName string, args map[string]any) (*ChatResult, error) {
+		receivedCtx = ctx
+		return &ChatResult{Content: "ok", Model: "test"}, nil
+	}
+
+	_, server := newTestServerHandler(t)
+	defer server.Close()
+
+	// We need to set the executor on the handler, but newTestServerHandler
+	// doesn't return it. Create a new handler with executor.
+	cfg := config.MCPServerModeConfig{
+		Enabled:       true,
+		Endpoint:      "/mcp",
+		Auth:          config.MCPAuthConfig{Mode: "none"},
+		SessionTTLSec: 3600,
+	}
+	handler := NewServerHandler(cfg, nil, func() ([]ToolDefinition, error) {
+		return []ToolDefinition{{Name: "test-tool", Description: "test", InputSchema: map[string]any{"type": "object"}}}, nil
+	}, nil)
+	handler.SetChatExecutor(exec)
+
+	server2 := httptest.NewServer(handler)
+	defer server2.Close()
+
+	resp, err := sendMCPRequest(server2.URL, Request{
+		JSONRPC: JSONRPCVersion,
+		ID:      1,
+		Method:  "tools/call",
+		Params: CallToolParams{
+			Name:      "test-tool",
+			Arguments: map[string]any{},
+		},
+	})
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %v", resp.Error.Message)
+	}
+
+	if receivedCtx == nil {
+		t.Fatal("executor was not called")
+	}
+
+	deadline, ok := receivedCtx.Deadline()
+	if !ok {
+		t.Fatal("context has no deadline — expected 5-minute timeout")
+	}
+
+	// Deadline should be approximately 5 minutes from now
+	expectedDur := 5 * time.Minute
+	actualDur := time.Until(deadline)
+	tolerance := 2 * time.Second
+	if actualDur < expectedDur-tolerance || actualDur > expectedDur+tolerance {
+		t.Errorf("context deadline = %v from now, want ~%v", actualDur.Round(time.Second), expectedDur)
 	}
 }
 

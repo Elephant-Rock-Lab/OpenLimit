@@ -12,7 +12,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .header h1{font-size:18px;font-weight:600}
 .header .ver{color:var(--muted);font-size:13px}
 .tabs{display:flex;gap:0;border-bottom:1px solid var(--border);background:var(--surface);padding:0 24px}
-.tab{padding:10px 20px;cursor:pointer;color:var(--muted);font-size:14px;border-bottom:2px solid transparent;transition:.2s}
+.tab{padding:10px 20px;cursor:pointer;color:var(--muted);font-size:14px;border-bottom:2px solid transparent;transition:.2s;min-height:44px;min-width:44px;display:flex;align-items:center}
 .tab:hover{color:var(--text)}
 .tab.active{color:var(--accent);border-bottom-color:var(--accent)}
 .container{max-width:1200px;margin:0 auto;padding:24px}
@@ -32,9 +32,8 @@ td{padding:8px 12px;border-bottom:1px solid var(--border)}
 .stat .value{font-size:28px;font-weight:700}
 .stat .label{color:var(--muted);font-size:13px}
 .filters{display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap}
-.filters input,.filters select{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:6px 12px;color:var(--text);font-size:13px}
+.filters input,.filters select{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:6px 12px;color:var(--text);font-size:13px;min-height:44px;min-width:44px}
 .filters input:focus,.filters select:focus{outline:none;border-color:var(--accent)}
-.loading{text-align:center;color:var(--muted);padding:40px}
 .error{color:var(--red);padding:20px}
 code{background:var(--bg);padding:2px 6px;border-radius:4px;font-size:12px}
 .provider-card{padding:16px}
@@ -44,6 +43,62 @@ code{background:var(--bg);padding:2px 6px;border-radius:4px;font-size:12px}
 .chart-bar .bar{height:20px;background:var(--accent);border-radius:3px;min-width:2px;transition:width .3s}
 .chart-bar .bar-label{width:100px;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .chart-bar .bar-value{color:var(--muted);min-width:70px}
+.modal-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:1000}
+.modal-overlay.hidden{display:none}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:24px;min-width:400px;max-width:500px}
+.modal h3{font-size:16px;font-weight:600;margin-bottom:16px}
+.modal-field{margin-bottom:12px}
+.modal-field label{display:block;font-size:13px;color:var(--muted);margin-bottom:4px}
+.modal-field input,.modal-field select{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;color:var(--text);font-size:14px}
+.modal-field input:focus,.modal-field select:focus{outline:none;border-color:var(--accent)}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+.btn-secondary{background:transparent;border:1px solid var(--border);color:var(--text);padding:8px 20px;border-radius:var(--radius);cursor:pointer;font-size:14px}
+.btn-secondary:hover{border-color:var(--muted)}
+.modal .error{margin-top:8px;font-size:13px}
+.modal .success{margin-top:8px;font-size:13px;color:var(--green);word-break:break-all;background:var(--bg);padding:12px;border-radius:var(--radius);font-family:monospace;white-space:pre-wrap}
+.heading-row{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.heading-row h2{margin-bottom:0}
+.btn-sm{background:var(--accent);border:none;color:#fff;padding:4px 12px;border-radius:var(--radius);cursor:pointer;font-size:12px;min-height:44px;min-width:44px}
+.btn-sm:hover{opacity:0.9}
+.btn-primary{background:var(--accent);border:none;color:#fff;padding:8px 20px;border-radius:var(--radius);cursor:pointer;font-size:14px;min-height:44px;min-width:44px}
+.btn-primary:hover{opacity:0.9}
+
+/* BATCH-28 TASK-01: Loading spinner */
+.spinner{display:inline-block;width:24px;height:24px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.panel-loading{display:flex;align-items:center;justify-content:center;padding:60px 0;gap:12px;color:var(--muted);font-size:14px}
+.panel-loading.hidden{display:none}
+
+/* BATCH-28 TASK-02: Actionable empty states */
+.empty-state{text-align:center;padding:48px 20px}
+.empty-state .empty-icon{font-size:40px;margin-bottom:12px;opacity:0.5}
+.empty-state h3{font-size:16px;font-weight:600;margin-bottom:6px}
+.empty-state p{color:var(--muted);font-size:14px;margin-bottom:16px}
+.empty-state .btn-primary{display:inline-block}
+
+/* BATCH-28 TASK-03: Toast notifications */
+#toast-container{position:fixed;bottom:24px;right:24px;z-index:2000;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+.toast{pointer-events:auto;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px 20px;display:flex;align-items:center;gap:10px;font-size:14px;box-shadow:0 4px 12px rgba(0,0,0,0.3);opacity:1;transition:opacity 0.3s;max-width:380px}
+.toast.success{border-left:3px solid var(--green)}
+.toast.error{border-left:3px solid var(--red)}
+.toast .toast-icon{font-size:16px;flex-shrink:0}
+.toast.success .toast-icon{color:var(--green)}
+.toast.error .toast-icon{color:var(--red)}
+.toast.fade-out{opacity:0}
+
+/* BATCH-28 TASK-04: First-run overlay */
+.firstrun-step{margin-top:20px}
+.firstrun-step .step-indicator{display:flex;gap:8px;margin-bottom:20px;justify-content:center}
+.firstrun-step .step-dot{width:10px;height:10px;border-radius:50%;background:var(--border);transition:background 0.3s}
+.firstrun-step .step-dot.active{background:var(--accent)}
+.firstrun-step .step-dot.done{background:var(--green)}
+.firstrun-step h4{font-size:15px;margin-bottom:8px;text-align:center}
+.firstrun-step p{color:var(--muted);font-size:13px;text-align:center;margin-bottom:16px}
+.firstrun-step .code-block{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:12px;font-family:monospace;font-size:12px;white-space:pre-wrap;word-break:break-all;color:var(--text);margin-bottom:16px;position:relative}
+.firstrun-step .code-block .copy-btn{position:absolute;top:8px;right:8px;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px}
+
+/* BATCH-48 TASK-02: Budget bar */
+.budget-bar{transition:width .3s}
 </style>
 </head>
 <body>
@@ -51,110 +106,1010 @@ code{background:var(--bg);padding:2px 6px;border-radius:4px;font-size:12px}
 <h1>⚡ OpenLimit</h1>
 <span class="ver" id="version">—</span>
 </div>
-<div class="tabs">
-<div class="tab active" data-panel="overview">Overview</div>
-<div class="tab" data-panel="keys">Keys</div>
-<div class="tab" data-panel="usage">Usage</div>
-<div class="tab" data-panel="providers">Providers</div>
-<div class="tab" data-panel="logs">Request Log</div>
+<div class="tabs" role="tablist">
+<div class="tab active" role="tab" aria-selected="true" data-panel="overview" id="tab-overview">Overview</div>
+<div class="tab" role="tab" aria-selected="false" data-panel="keys" id="tab-keys">Keys</div>
+<div class="tab" role="tab" aria-selected="false" data-panel="usage" id="tab-usage">Usage</div>
+<div class="tab" role="tab" aria-selected="false" data-panel="spend" id="tab-spend">Spend</div>
+<div class="tab" role="tab" aria-selected="false" data-panel="guardrails" id="tab-guardrails">Guardrails</div>
+<div class="tab" role="tab" aria-selected="false" data-panel="providers" id="tab-providers">Providers</div>
+<div class="tab" role="tab" aria-selected="false" data-panel="mcp" id="tab-mcp">MCP</div>
+<div class="tab" role="tab" aria-selected="false" data-panel="logs" id="tab-logs">Request Log</div>
 </div>
 <div class="container">
 <!-- Overview -->
-<div class="panel active" id="panel-overview">
+<div class="panel active" role="tabpanel" aria-labelledby="tab-overview" id="panel-overview">
+<div id="overview-spinner" class="panel-loading"><div class="spinner"></div>Loading...</div>
+<div id="overview-content" style="display:none">
 <div class="grid" id="overview-stats"></div>
-<div class="card"><h2>Projects</h2><div id="overview-projects"></div></div>
+<div class="card"><div class="heading-row"><h2>Projects</h2><button class="btn-sm" aria-label="Create new project" onclick="openCreateProjectModal()">New Project</button></div><div id="overview-projects"></div></div>
+</div>
 </div>
 <!-- Keys -->
-<div class="panel" id="panel-keys">
-<div class="card"><h2>Virtual Keys</h2>
-<div class="filters"><input type="text" id="key-filter" placeholder="Filter by name or prefix..."></div>
-<table><thead><tr><th>Prefix</th><th>Name</th><th>Project</th><th>Models</th><th>RPM</th><th>Budget</th></tr></thead>
+<div class="panel" role="tabpanel" aria-labelledby="tab-keys" id="panel-keys">
+<div id="keys-spinner" class="panel-loading"><div class="spinner"></div>Loading keys...</div>
+<div id="keys-content" style="display:none">
+<div class="card"><div class="heading-row"><h2>Virtual Keys</h2><button class="btn-sm" aria-label="Create new key" onclick="openCreateKeyModal()">New Key</button></div>
+<div class="filters"><input type="text" id="key-filter" aria-label="Filter keys by name or prefix" placeholder="Filter by name or prefix..."></div>
+<table><thead><tr><th>Prefix</th><th>Name</th><th>Project</th><th>Models</th><th>RPM</th><th>Budget</th><th>Actions</th></tr></thead>
 <tbody id="keys-table"></tbody></table></div>
 </div>
+</div>
 <!-- Usage -->
-<div class="panel" id="panel-usage">
+<div class="panel" role="tabpanel" aria-labelledby="tab-usage" id="panel-usage">
+<div id="usage-spinner" class="panel-loading"><div class="spinner"></div>Loading usage data...</div>
+<div id="usage-content" style="display:none">
 <div class="card"><h2>Usage Analytics</h2>
 <div class="filters">
-<select id="usage-period"><option value="daily">Daily</option><option value="monthly">Monthly</option></select>
-<select id="usage-project"></select>
+<select id="usage-period" aria-label="Usage period"><option value="daily">Daily</option><option value="monthly">Monthly</option></select>
+<select id="usage-project" aria-label="Project filter"></select>
 </div>
 <div id="usage-chart"></div>
 </div>
 <div class="card"><h2>Top Models by Spend</h2><div id="usage-top-models"></div></div>
 </div>
+</div>
+<!-- Spend -->
+<div class="panel" role="tabpanel" aria-labelledby="tab-spend" id="panel-spend">
+<div id="spend-spinner" class="panel-loading"><div class="spinner"></div>Loading spend data...</div>
+<div id="spend-content" style="display:none">
+<div class="card"><h2>Budget Overview</h2>
+<div class="filters"><select id="spend-period" aria-label="Spend period"><option value="monthly">Monthly</option><option value="daily">Daily</option></select></div>
+<div class="grid" id="spend-summary"></div>
+</div>
+<div class="card"><h2>Per-Key Budget Utilization</h2><div id="spend-keys"></div></div>
+</div>
+</div>
+<!-- BATCH-49 TASK-02: Guardrails -->
+<div class="panel" role="tabpanel" aria-labelledby="tab-guardrails" id="panel-guardrails">
+<div id="guardrails-spinner" class="panel-loading"><div class="spinner"></div>Loading guardrails...</div>
+<div id="guardrails-content" style="display:none">
+<div class="card"><h2>Guardrail Stats</h2><div id="gr-stats"><div style="color:var(--muted);font-size:13px">Loading stats...</div></div></div>
+<div class="card"><h2>Provider Health</h2><div id="gr-provider-health"><div style="color:var(--muted);font-size:13px">Loading...</div></div></div>
+<div class="card"><div class="heading-row"><h2>Validator Catalog</h2></div><div class="grid" id="guardrails-catalog"></div></div>
+<div class="card"><h2>Test Validator</h2>
+<div class="filters">
+<select id="gr-test-type" aria-label="Validator type">
+<option value="pii">PII Redaction</option>
+<option value="keyword">Keyword Blocklist</option>
+<option value="length">Length Limit</option>
+<option value="regex">Regex Pattern</option>
+<option value="json_schema">JSON Schema</option>
+</select>
+<select id="gr-test-direction" aria-label="Direction"><option value="input">Input</option><option value="output">Output</option></select>
+</div>
+<div style="margin-bottom:12px"><textarea id="gr-test-text" rows="4" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;color:var(--text);font-size:13px;resize:vertical;font-family:inherit" placeholder="Enter sample text to test..."></textarea></div>
+<div style="margin-bottom:12px"><textarea id="gr-test-config" rows="3" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;color:var(--text);font-size:12px;resize:vertical;font-family:monospace" placeholder='Optional config JSON, e.g. {"types":["email"],"action":"redact"}'></textarea></div>
+<button class="btn-primary" onclick="testGuardrailJS()">Run Test</button>
+<div id="gr-test-result" style="margin-top:16px"></div>
+</div>
+</div>
+</div>
 <!-- Providers -->
-<div class="panel" id="panel-providers">
+<div class="panel" role="tabpanel" aria-labelledby="tab-providers" id="panel-providers">
+<div id="providers-spinner" class="panel-loading"><div class="spinner"></div>Loading providers...</div>
+<div id="providers-content" style="display:none">
 <div class="grid" id="provider-cards"></div>
 </div>
+</div>
+<!-- BATCH-53 TASK-02: MCP Servers -->
+<div class="panel" role="tabpanel" aria-labelledby="tab-mcp" id="panel-mcp">
+<h3>MCP Servers</h3>
+<div id="mcp-servers"><p class="muted">Loading...</p></div>
+</div>
 <!-- Request Log -->
-<div class="panel" id="panel-logs">
+<div class="panel" role="tabpanel" aria-labelledby="tab-logs" id="panel-logs">
+<div id="logs-spinner" class="panel-loading"><div class="spinner"></div>Loading logs...</div>
+<div id="logs-content" style="display:none">
 <div class="card"><h2>Request Log</h2>
 <div class="filters">
-<input type="text" id="log-model" placeholder="Model...">
-<input type="text" id="log-provider" placeholder="Provider...">
-<select id="log-stream"><option value="">All Types</option><option value="false">Non-Streaming</option><option value="true">Streaming</option></select>
-<button onclick="loadLogs()" style="background:var(--accent);border:none;color:#fff;padding:6px 16px;border-radius:var(--radius);cursor:pointer">Filter</button>
+<input type="text" id="log-model" aria-label="Filter by model" placeholder="Model...">
+<input type="text" id="log-provider" aria-label="Filter by provider" placeholder="Provider...">
+<select id="log-stream" aria-label="Stream type filter"><option value="">All Types</option><option value="false">Non-Streaming</option><option value="true">Streaming</option></select>
+<button class="btn-primary" aria-label="Apply filters" style="padding:6px 16px;font-size:13px" onclick="loadLogs()">Filter</button>
 </div>
 <table><thead><tr><th>Time</th><th>Model</th><th>Provider</th><th>Tokens</th><th>Cost</th><th>Duration</th><th>Cache</th></tr></thead>
 <tbody id="logs-table"></tbody></table></div>
 </div>
 </div>
+</div>
+
+<!-- Toast container -->
+<div id="toast-container" role="alert" aria-live="polite"></div>
+
+<!-- Create Project Modal -->
+<div class="modal-overlay hidden" id="modal-create-project" onclick="if(event.target===this)closeCreateProjectModal()">
+<div class="modal">
+<h3>Create Project</h3>
+<div class="modal-field"><label for="project-name">Project Name</label><input type="text" id="project-name" placeholder="Enter project name"></div>
+<div class="error" id="project-error" style="display:none"></div>
+<div class="modal-actions"><button class="btn-secondary" onclick="closeCreateProjectModal()">Cancel</button><button class="btn-primary" onclick="submitCreateProject()">Create</button></div>
+</div>
+</div>
+
+<!-- Create Key Modal -->
+<div class="modal-overlay hidden" id="modal-create-key" onclick="if(event.target===this)closeCreateKeyModal()">
+<div class="modal">
+<h3>Create Virtual Key</h3>
+<div class="modal-field"><label for="key-project">Project</label><select id="key-project"></select></div>
+<div class="modal-field"><label for="key-name">Key Name</label><input type="text" id="key-name" placeholder="Enter key name"></div>
+<div class="modal-field"><label for="key-rpm">RPM Limit (0 = unlimited)</label><input type="number" id="key-rpm" value="0" min="0"></div>
+<div class="modal-field"><label for="key-budget">Budget Limit USD (0 = unlimited)</label><input type="number" id="key-budget" value="0" min="0" step="0.01"></div>
+<div class="error" id="key-error" style="display:none"></div>
+<div class="success" id="key-success" style="display:none"></div>
+<div class="modal-actions"><button class="btn-secondary" onclick="closeCreateKeyModal()">Cancel</button><button class="btn-primary" onclick="submitCreateKey()">Create</button></div>
+</div>
+</div>
+
+<!-- BATCH-28/45: First-Run Overlay (3-step onboarding) -->
+<div class="modal-overlay hidden" id="modal-firstrun" onclick="if(event.target===this)dismissFirstRun()">
+<div class="modal" style="min-width:480px">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+<h3>Welcome to OpenLimit 🚀</h3>
+<button onclick="dismissFirstRun()" aria-label="Close welcome dialog" style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer">&times;</button>
+</div>
+<p style="color:var(--muted);font-size:13px;margin-bottom:4px">Get your first request in 60 seconds</p>
+<div id="firstrun-body"></div>
+</div>
+</div>
+
+<!-- BATCH-29 TASK-02: Edit Key Modal -->
+<div class="modal-overlay hidden" id="modal-edit-key" onclick="if(event.target===this)closeEditKeyModal()">
+<div class="modal" style="min-width:500px;max-height:80vh;overflow-y:auto">
+<h3>Edit Virtual Key</h3>
+<input type="hidden" id="edit-key-id">
+<div class="modal-field"><label for="edit-key-name">Key Name</label><input type="text" id="edit-key-name"></div>
+<div class="modal-field"><label for="edit-key-rpm">RPM Limit (0 = unlimited)</label><input type="number" id="edit-key-rpm" value="0" min="0"></div>
+<div class="modal-field"><label for="edit-key-tpm">TPM Limit (0 = unlimited)</label><input type="number" id="edit-key-tpm" value="0" min="0"></div>
+<div class="modal-field"><label for="edit-key-budget">Budget Limit USD (0 = unlimited)</label><input type="number" id="edit-key-budget" value="0" min="0" step="0.01"></div>
+<div class="modal-field"><label for="edit-key-period">Budget Period</label><select id="edit-key-period"><option value="monthly">Monthly</option><option value="daily">Daily</option></select></div>
+<div class="modal-field"><label for="edit-key-models">Allowed Models (comma-separated, empty = all)</label><input type="text" id="edit-key-models" placeholder="e.g. fast,smart"></div>
+<div class="modal-field"><label for="edit-key-providers">Allowed Providers (comma-separated, empty = all)</label><input type="text" id="edit-key-providers" placeholder="e.g. openai,anthropic"></div>
+<div class="modal-field"><label for="edit-key-tools">Allowed Tools (comma-separated)</label><input type="text" id="edit-key-tools" placeholder="e.g. tool1,tool2"></div>
+<div class="modal-field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="edit-key-mcp" style="width:auto"><label for="edit-key-mcp" style="margin:0">Allow MCP Server</label></div>
+<div class="modal-field"><label for="edit-key-mcp-tool">MCP Tool Name</label><input type="text" id="edit-key-mcp-tool" placeholder="Optional"></div>
+<div class="error" id="edit-key-error" style="display:none"></div>
+<div class="modal-actions"><button class="btn-secondary" onclick="closeEditKeyModal()">Cancel</button><button class="btn-primary" onclick="submitEditKey()">Save Changes</button></div>
+</div>
+</div>
+
+<!-- BATCH-29 TASK-03: Key Detail Panel -->
+<div id="key-detail-panel" style="position:fixed;top:0;right:-420px;width:400px;height:100%;background:var(--surface);border-left:1px solid var(--border);z-index:900;transition:right 0.3s;overflow-y:auto;padding:24px">
+<button onclick="closeKeyDetail()" aria-label="Close key detail panel" style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;position:absolute;top:12px;right:12px">&times;</button>
+<h3 id="detail-key-name" style="margin-bottom:16px;padding-right:32px"></h3>
+<div id="detail-key-body"></div>
+</div>
+<div id="key-detail-backdrop" onclick="closeKeyDetail()" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.3);z-index:899;display:none"></div>
 
 <script>
 const API=window.location.origin;
 let token='';
-function getToken(){token=localStorage.getItem('admin_token')||prompt('Enter admin bearer token:');if(token)localStorage.setItem('admin_token',token);return token}
-async function api(path){if(!token)getToken();const r=await fetch(API+path,{headers:{'Authorization':'Bearer '+token}});if(r.status===401){localStorage.removeItem('admin_token');getToken();return api(path)}return r.json()}
 
-// Tabs
-document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));t.classList.add('active');document.getElementById('panel-'+t.dataset.panel).classList.add('active');loadPanel(t.dataset.panel)});
+// ═══════════════════════════════════════════════════════════
+// BATCH-27: Auth + Network Error Handling (preserved)
+// ═══════════════════════════════════════════════════════════
 
-function loadPanel(p){switch(p){case'overview':loadOverview();break;case'keys':loadKeys();break;case'usage':loadUsage();break;case'providers':loadProviders();break;case'logs':loadLogs()}}
+function showAuthError(msg){
+  document.querySelector('.container').innerHTML='<div class="card" style="text-align:center;padding:40px"><h2 style="margin-bottom:12px">Authentication Required</h2><p style="color:var(--muted);margin-bottom:16px">'+esc(msg)+'</p><button class="btn-primary" onclick="location.reload()">Retry</button></div>';
+}
 
-// Overview
-async function loadOverview(){const[health,projects,keys]=await Promise.all([api('/health'),api('/admin/projects'),api('/admin/keys')]);document.getElementById('version').textContent='v'+health.version;
-const s=document.getElementById('overview-stats');
-s.innerHTML=`<div class="card stat"><div class="value">${projects.length}</div><div class="label">Projects</div></div><div class="card stat"><div class="value">${keys.length}</div><div class="label">Virtual Keys</div></div>`;
-const pp=document.getElementById('overview-projects');
-if(projects.length===0){pp.innerHTML='<p style="color:var(--muted)">No projects yet</p>';return}
-pp.innerHTML='<table><thead><tr><th>Name</th><th>Created</th></tr></thead><tbody>'+projects.map(p=>`<tr><td>${esc(p.name)}</td><td>${p.created_at||'—'}</td></tr>`).join('')+'</tbody></table>'}
+function getToken(){
+  token=localStorage.getItem('admin_token');
+  if(token)return token;
+  const input=prompt('Enter admin bearer token:');
+  if(input===null){showAuthError('Authentication was cancelled. Click Retry to try again.');return null}
+  if(!input){showAuthError('Token cannot be empty. Click Retry to try again.');return null}
+  token=input;
+  localStorage.setItem('admin_token',token);
+  return token;
+}
 
-// Keys
-async function loadKeys(){const[keys,projects]=await Promise.all([api('/admin/keys'),api('/admin/projects')]);const pMap={};projects.forEach(p=>pMap[p.id]=p.name);
-const filter=document.getElementById('key-filter').value.toLowerCase();
-const filtered=keys.filter(k=>!filter||k.name.toLowerCase().includes(filter)||k.key_prefix.toLowerCase().includes(filter));
-document.getElementById('keys-table').innerHTML=filtered.map(k=>`<tr><td><code>${esc(k.key_prefix)}...</code></td><td>${esc(k.name)}</td><td>${esc(pMap[k.project_id]||k.project_id)}</td><td>${(k.allowed_models||[]).length||'All'}</td><td>${k.rpm_limit||'∞'}</td><td>${k.budget_limit_usd?'$'+k.budget_limit_usd.toFixed(2):'—'}</td></tr>`).join('')}
-document.getElementById('key-filter').oninput=()=>loadKeys();
+let networkErrorShown=false;
+function showNetworkError(msg){
+  if(networkErrorShown)return;
+  networkErrorShown=true;
+  document.querySelector('.container').innerHTML='<div class="card" style="text-align:center;padding:40px"><h2 style="margin-bottom:12px;color:var(--red)">Connection Error</h2><p style="color:var(--muted);margin-bottom:16px">'+esc(msg)+'</p><button class="btn-primary" onclick="networkErrorShown=false;location.reload()">Retry</button></div>';
+}
 
-// Usage
-async function loadUsage(){const period=document.getElementById('usage-period').value;const pid=document.getElementById('usage-project').value;let url='/admin/usage/summary?period='+period;if(pid)url+='&project_id='+pid;const data=await api(url);
-// Top models by spend
-const modelCost={};data.forEach(r=>{modelCost[r.model]=(modelCost[r.model]||0)+r.cost_usd});
-const sorted=Object.entries(modelCost).sort((a,b)=>b[1]-a[1]).slice(0,8);
-const maxCost=sorted.length?sorted[0][1]:1;
-document.getElementById('usage-top-models').innerHTML=sorted.map(([m,c])=>`<div class="chart-bar"><span class="bar-label">${esc(m)}</span><div class="bar" style="width:${(c/maxCost*300)}px"></div><span class="bar-value">$${c.toFixed(4)}</span></div>`).join('')||'<p style="color:var(--muted)">No usage data</p>';
-// Period chart
-const byPeriod={};data.forEach(r=>{byPeriod[r.period]=(byPeriod[r.period]||0)+r.cost_usd});
-const pSorted=Object.entries(byPeriod).sort((a,b)=>a[0].localeCompare(b[0])).slice(-14);
-const maxP=pSorted.length?pSorted[pSorted.length-1][1]:1;
-document.getElementById('usage-chart').innerHTML=pSorted.map(([p,c])=>`<div class="chart-bar"><span class="bar-label">${p.slice(0,10)}</span><div class="bar" style="width:${(c/maxP*300)}px"></div><span class="bar-value">$${c.toFixed(4)}</span></div>`).join('')||'<p style="color:var(--muted)">No usage data</p>'}
+async function api(path){
+  if(!token){if(getToken()===null)return{}}
+  try{
+    const r=await fetch(API+path,{headers:{'Authorization':'Bearer '+token}});
+    if(r.status===401){
+      localStorage.removeItem('admin_token');token='';
+      if(getToken()===null)return{};
+      return api(path);
+    }
+    return await r.json();
+  }catch(e){
+    showNetworkError('Cannot reach the gateway at '+API+'. Is it running?');
+    return{};
+  }
+}
+
+async function apiPost(path,body){
+  if(!token){if(getToken()===null)return{}}
+  try{
+    const r=await fetch(API+path,{method:'POST',headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(r.status===401){
+      localStorage.removeItem('admin_token');token='';
+      if(getToken()===null)return{};
+      return apiPost(path,body);
+    }
+    return await r.json();
+  }catch(e){
+    showNetworkError('Cannot reach the gateway at '+API+'. Is it running?');
+    return{};
+  }
+}
+
+async function apiDelete(path){
+  if(!token){if(getToken()===null)return{ok:false}}
+  try{
+    const r=await fetch(API+path,{method:'DELETE',headers:{'Authorization':'Bearer '+token}});
+    if(r.status===401){localStorage.removeItem('admin_token');token='';if(getToken()===null)return{ok:false};return apiDelete(path)}
+    return{ok:r.ok,status:r.status};
+  }catch(e){showNetworkError('Cannot reach the gateway at '+API+'. Is it running?');return{ok:false}}
+}
+
+// ═══════════════════════════════════════════════════════════
+// BATCH-27: Revoke + Copy (preserved)
+// ═══════════════════════════════════════════════════════════
+
+async function revokeKey(keyId,keyName){
+  if(!confirm('Revoke key "'+keyName+'"? This action cannot be undone.'))return;
+  const res=await apiDelete('/admin/keys/'+encodeURIComponent(keyId));
+  if(res.ok){showToast('Key "'+keyName+'" revoked','success');loadKeys()}
+  else{showToast('Failed to revoke key ('+res.status+')','error')}
+}
+
+function copyToClipboard(text,btn){
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(()=>{btn.textContent='Copied!';setTimeout(()=>btn.textContent='Copy to Clipboard',2000)});
+  }else{
+    const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.left='-9999px';document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);btn.textContent='Copied!';setTimeout(()=>btn.textContent='Copy to Clipboard',2000);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// BATCH-28 TASK-03: Toast Notification System
+// ═══════════════════════════════════════════════════════════
+
+function showToast(message,type){
+  const container=document.getElementById('toast-container');
+  const toast=document.createElement('div');
+  toast.className='toast '+(type||'success');
+  const icon=type==='error'?'✕':'✓';
+  toast.innerHTML='<span class="toast-icon">'+icon+'</span><span>'+esc(message)+'</span>';
+  container.appendChild(toast);
+  setTimeout(()=>{toast.classList.add('fade-out');setTimeout(()=>toast.remove(),300)},3000);
+}
+
+// ═══════════════════════════════════════════════════════════
+// BATCH-28 TASK-01: Loading State Helpers
+// ═══════════════════════════════════════════════════════════
+
+function showSpinner(panelId){
+  const s=document.getElementById(panelId+'-spinner');
+  const c=document.getElementById(panelId+'-content');
+  if(s)s.classList.remove('hidden');
+  if(c)c.style.display='none';
+}
+
+function hideSpinner(panelId){
+  const s=document.getElementById(panelId+'-spinner');
+  const c=document.getElementById(panelId+'-content');
+  if(s)s.classList.add('hidden');
+  if(c)c.style.display='';
+}
+
+// ═══════════════════════════════════════════════════════════
+// BATCH-28 TASK-02: Actionable Empty State Helper
+// ═══════════════════════════════════════════════════════════
+
+function emptyState(icon,title,description,ctaLabel,ctaAction){
+  let html='<div class="empty-state"><div class="empty-icon">'+icon+'</div><h3>'+title+'</h3><p>'+description+'</p>';
+  if(ctaLabel)html+='<button class="btn-primary" onclick="'+ctaAction+'">'+ctaLabel+'</button>';
+  html+='</div>';
+  return html;
+}
+
+// ═══════════════════════════════════════════════════════════
+// Tabs + Panel Routing
+// ═══════════════════════════════════════════════════════════
+
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
+  if(mcpTimer){clearInterval(mcpTimer);mcpTimer=null;}
+  document.querySelectorAll('.tab').forEach(x=>{x.classList.remove('active');x.setAttribute('aria-selected','false')});
+  document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
+  t.classList.add('active');
+  t.setAttribute('aria-selected','true');
+  document.getElementById('panel-'+t.dataset.panel).classList.add('active');
+  window.location.hash=t.dataset.panel;
+  loadPanel(t.dataset.panel);
+});
+
+function loadPanel(p){switch(p){case'overview':loadOverview();break;case'keys':loadKeys();break;case'usage':loadUsage();break;case'spend':loadSpend();break;case'guardrails':loadGuardrails();break;case'providers':loadProviders();break;case'mcp':loadMCP();break;case'logs':loadLogs()}}
+
+// ═══════════════════════════════════════════════════════════
+// Overview Panel
+// ═══════════════════════════════════════════════════════════
+
+async function loadOverview(){
+  showSpinner('overview');
+  const[health,projects,keys]=await Promise.all([api('/health'),api('/admin/projects'),api('/admin/keys')]);
+  _allKeys=keys||[];_allProjects=projects||[];
+  document.getElementById('version').textContent='v'+(health.version||'?');
+
+  const s=document.getElementById('overview-stats');
+  s.innerHTML='<div class="card stat"><div class="value">'+projects.length+'</div><div class="label">Projects</div></div><div class="card stat"><div class="value">'+keys.length+'</div><div class="label">Virtual Keys</div></div>';
+
+  const pp=document.getElementById('overview-projects');
+  if(projects.length===0){
+    pp.innerHTML=emptyState('📁','No projects yet','Create your first project to organize your API keys.','Create Project','openCreateProjectModal()');
+  }else{
+    pp.innerHTML='<table><thead><tr><th>Name</th><th>Created</th><th>Actions</th></tr></thead><tbody>'+projects.map(p=>'<tr><td>'+esc(p.name)+'</td><td>'+(p.created_at||'—')+'</td><td><button class="btn-sm" style="background:var(--red)" onclick="deleteProject(\''+esc(p.id)+'\',\''+esc(p.name)+'\')">Delete</button></td></tr>').join('')+'</tbody></table>';
+  }
+  hideSpinner('overview');
+
+  // BATCH-28 TASK-04: Trigger first-run overlay if applicable
+  if(projects.length===0&&!localStorage.getItem('openlimit_firstrun_done')){
+    showFirstRun();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// Keys Panel
+// ═══════════════════════════════════════════════════════════
+
+async function loadKeys(){
+  showSpinner('keys');
+  const[keys,projects]=await Promise.all([api('/admin/keys'),api('/admin/projects')]);
+  _allKeys=keys||[];_allProjects=projects||[];
+  const pMap={};projects.forEach(p=>pMap[p.id]=p.name);
+  const filter=document.getElementById('key-filter').value.toLowerCase();
+  const filtered=keys.filter(k=>!filter||k.name.toLowerCase().includes(filter)||k.key_prefix.toLowerCase().includes(filter));
+
+  if(keys.length===0&& !filter){
+    document.getElementById('keys-table').innerHTML='<tr><td colspan="7">'+emptyState('🔑','No keys yet','Create a virtual key to start making API requests.','Create Key','openCreateKeyModal()')+'</td></tr>';
+  }else if(filtered.length===0){
+    document.getElementById('keys-table').innerHTML='<tr><td colspan="7" style="color:var(--muted);text-align:center;padding:24px">No keys match your filter</td></tr>';
+  }else{
+    document.getElementById('keys-table').innerHTML=filtered.map(k=>'<tr style="cursor:pointer" onclick="openKeyDetail(\''+esc(k.id)+'\')"><td><code>'+esc(k.key_prefix)+'...</code></td><td>'+esc(k.name)+'</td><td>'+esc(pMap[k.project_id]||k.project_id)+'</td><td>'+(k.allowed_models||[]).length||'All'+'</td><td>'+k.rpm_limit||'∞'+'</td><td>'+(k.budget_limit_usd?'$'+k.budget_limit_usd.toFixed(2):'—')+'</td><td onclick="event.stopPropagation()"><button class="btn-sm" onclick="openEditKeyModal(\''+esc(k.id)+'\')" style="margin-right:4px">Edit</button><button class="btn-sm" style="background:var(--red)" onclick="revokeKey(\''+esc(k.id)+'\',\''+esc(k.name)+'\')">Revoke</button></td></tr>').join('');
+  }
+  hideSpinner('keys');
+}
+let _keyFilterTimer=null;document.getElementById('key-filter').oninput=()=>{clearTimeout(_keyFilterTimer);_keyFilterTimer=setTimeout(loadKeys,300)};
+
+// ═══════════════════════════════════════════════════════════
+// Usage Panel
+// ═══════════════════════════════════════════════════════════
+
+async function loadUsage(){
+  showSpinner('usage');
+  const period=document.getElementById('usage-period').value;
+  const pid=document.getElementById('usage-project').value;
+  let url='/admin/usage/summary?period='+period;
+  if(pid)url+='&project_id='+pid;
+  const data=await api(url);
+
+  if(!data||data.length===0){
+    document.getElementById('usage-top-models').innerHTML=emptyState('📊','No usage data yet','Make your first API request to see spending analytics.',null,null);
+    document.getElementById('usage-chart').innerHTML='';
+    hideSpinner('usage');
+    return;
+  }
+
+  const modelCost={};data.forEach(r=>{modelCost[r.model]=(modelCost[r.model]||0)+r.cost_usd});
+  const sorted=Object.entries(modelCost).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  const maxCost=sorted.length?sorted[0][1]:1;
+  document.getElementById('usage-top-models').innerHTML=sorted.map(([m,c])=>'<div class="chart-bar"><span class="bar-label">'+esc(m)+'</span><div class="bar" style="width:'+(c/maxCost*300)+'px"></div><span class="bar-value">$'+c.toFixed(4)+'</span></div>').join('');
+
+  const byPeriod={};data.forEach(r=>{byPeriod[r.period]=(byPeriod[r.period]||0)+r.cost_usd});
+  const pSorted=Object.entries(byPeriod).sort((a,b)=>a[0].localeCompare(b[0])).slice(-14);
+  const maxP=pSorted.length?pSorted[pSorted.length-1][1]:1;
+  document.getElementById('usage-chart').innerHTML=pSorted.map(([p,c])=>'<div class="chart-bar"><span class="bar-label">'+esc(p.slice(0,10))+'</span><div class="bar" style="width:'+(c/maxP*300)+'px"></div><span class="bar-value">$'+c.toFixed(4)+'</span></div>').join('');
+  hideSpinner('usage');
+}
 document.getElementById('usage-period').onchange=()=>loadUsage();
 document.getElementById('usage-project').onchange=()=>loadUsage();
-async function loadProjectFilter(){const projects=await api('/admin/projects');const sel=document.getElementById('usage-project');sel.innerHTML='<option value="">All Projects</option>'+projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}
+async function loadProjectFilter(){const projects=await api('/admin/projects');const sel=document.getElementById('usage-project');sel.innerHTML='<option value="">All Projects</option>'+projects.map(p=>'<option value="'+p.id+'">'+esc(p.name)+'</option>').join('')}
 
-// Providers
-async function loadProviders(){const ready=await api('/ready');const providers=ready.providers||[];
-document.getElementById('provider-cards').innerHTML=providers.map(p=>{const badge=p.ready?'<span class="badge green">Healthy</span>':'<span class="badge red">Unhealthy</span>';return`<div class="card provider-card"><div class="name">${esc(p.name)} ${badge}</div><div class="meta"><span>Type: ${esc(p.type)}</span><span>Keys: ${p.active_keys}/${p.configured_keys}</span>${p.reason?`<span>Reason: ${esc(p.reason)}</span>`:''}</div></div>`}).join('')||'<p style="color:var(--muted)">No providers configured</p>'}
+// ═══════════════════════════════════════════════════════════
+// BATCH-48 TASK-02: Spend Dashboard Panel
+// ═══════════════════════════════════════════════════════════
 
-// Logs
-async function loadLogs(){const model=document.getElementById('log-model').value;const provider=document.getElementById('log-provider').value;const stream=document.getElementById('log-stream').value;let url='/admin/usage?limit=100';if(model)url+='&model='+encodeURIComponent(model);if(provider)url+='&provider='+encodeURIComponent(provider);const data=await api(url);
-const filtered=stream!==''?data.filter(r=>String(r.stream)===stream):data;
-document.getElementById('logs-table').innerHTML=filtered.map(r=>`<tr><td>${(r.created_at||'').slice(11,19)}</td><td>${esc(r.model)}</td><td>${esc(r.provider)}</td><td>${r.total_tokens||0}</td><td>$${(r.cost_usd||0).toFixed(4)}</td><td>${r.duration_ms||0}ms</td><td>${r.cache_hit?'<span class="badge green">HIT</span>':'—'}</td></tr>`).join('')||'<tr><td colspan="7" style="color:var(--muted);text-align:center">No log entries</td></tr>'}
+// computeStatusJS mirrors Go computeKeyStatus for client-side rendering.
+// Returns "unlimited" when budgetLimit is 0, "healthy" when utilization < 75%,
+// "warning" when 75% <= utilization <= 95%, and "critical" when utilization > 95%.
+function computeStatusJS(spend, budgetLimit) {
+  if (!budgetLimit || budgetLimit <= 0) return 'unlimited';
+  var pct = (spend / budgetLimit) * 100;
+  if (pct > 95) return 'critical';
+  if (pct >= 75) return 'warning';
+  return 'healthy';
+}
+
+async function loadSpend() {
+  showSpinner('spend');
+  var period = document.getElementById('spend-period').value;
+  var data = await api('/admin/usage/spend?period=' + period);
+
+  if (!data || !data.keys) {
+    document.getElementById('spend-summary').innerHTML = '';
+    document.getElementById('spend-keys').innerHTML = emptyState('💰', 'No spend data available', 'Spend data appears once virtual keys with budgets are configured.', null, null);
+    hideSpinner('spend');
+    return;
+  }
+
+  var totalSpend = data.total_spend_usd || 0;
+  var totalBudget = data.total_budget_usd || 0;
+  var overallPct = totalBudget > 0 ? (totalSpend / totalBudget * 100) : 0;
+  var overallStatus = computeStatusJS(totalSpend, totalBudget);
+
+  // Render total spend card
+  var summaryHtml = '';
+  summaryHtml += '<div class="card stat"><div class="value" style="color:var(--accent)">$' + totalSpend.toFixed(2) + '</div><div class="label">Total Spend</div></div>';
+  summaryHtml += '<div class="card stat"><div class="value">$' + totalBudget.toFixed(2) + '</div><div class="label">Total Budget</div></div>';
+  summaryHtml += '<div class="card stat"><div class="value">' + overallPct.toFixed(1) + '%</div><div class="label">Overall Utilization</div></div>';
+  document.getElementById('spend-summary').innerHTML = summaryHtml;
+
+  // Render per-key budget bars
+  var keys = data.keys;
+  if (!keys || keys.length === 0) {
+    document.getElementById('spend-keys').innerHTML = emptyState('💰', 'No keys with budgets', 'Create a virtual key with a budget limit to see spend tracking.', 'Create Key', 'openCreateKeyModal()');
+    hideSpinner('spend');
+    return;
+  }
+
+  var keysHtml = '';
+  for (var i = 0; i < keys.length; i++) {
+    var k = keys[i];
+    var status = computeStatusJS(k.spend_usd, k.budget_limit_usd);
+    var pct = k.utilization_pct || 0;
+    var barWidth = Math.min(pct, 100);
+    var barColor = 'var(--accent)'; // default
+    if (status === 'critical') barColor = 'var(--red)';
+    else if (status === 'warning') barColor = 'var(--yellow)';
+    else if (status === 'healthy') barColor = 'var(--green)';
+    else barColor = 'var(--muted)'; // unlimited
+
+    var statusBadge = '';
+    if (status === 'critical') statusBadge = '<span class="badge red">Critical</span>';
+    else if (status === 'warning') statusBadge = '<span class="badge yellow">Warning</span>';
+    else if (status === 'healthy') statusBadge = '<span class="badge green">Healthy</span>';
+    else statusBadge = '<span class="badge" style="background:var(--border);color:var(--muted)">Unlimited</span>';
+
+    keysHtml += '<div class="budget-bar-item" style="margin-bottom:16px;padding:12px 0;border-bottom:1px solid var(--border)">';
+    keysHtml += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">';
+    keysHtml += '<div><code>' + esc(k.key_prefix) + '...</code> <strong>' + esc(k.key_name) + '</strong> ' + statusBadge + '</div>';
+    keysHtml += '<div style="color:var(--muted);font-size:13px">$' + k.spend_usd.toFixed(2) + ' / ' + (k.budget_limit_usd > 0 ? '$' + k.budget_limit_usd.toFixed(2) : '∞') + '</div>';
+    keysHtml += '</div>';
+    if (k.budget_limit_usd > 0) {
+      keysHtml += '<div style="background:var(--bg);border-radius:4px;height:8px;overflow:hidden">';
+      keysHtml += '<div class="budget-bar" style="height:100%;width:' + barWidth + '%;background:' + barColor + ';border-radius:4px;transition:width .3s"></div>';
+      keysHtml += '</div>';
+      keysHtml += '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + pct.toFixed(1) + '% utilized</div>';
+    }
+    keysHtml += '</div>';
+  }
+  document.getElementById('spend-keys').innerHTML = keysHtml;
+  hideSpinner('spend');
+}
+document.getElementById('spend-period').onchange = function() { loadSpend(); };
+
+// ═══════════════════════════════════════════════════════════
+// Guardrails Panel (BATCH-49)
+// ═══════════════════════════════════════════════════════════
+
+async function loadGuardrails(){
+  showSpinner('guardrails');
+  const data=await api('/admin/guardrails/catalog');
+  if(!data||!data.length){
+    document.getElementById('guardrails-catalog').innerHTML=emptyState('🛡️','No guardrails available','Guardrails are built into OpenLimit.','',null);
+    hideSpinner('guardrails');return;
+  }
+  var html='';
+  for(var i=0;i<data.length;i++){
+    var v=data[i];
+    var badge=v.testable?'<span class="badge green">Testable</span>':'<span class="badge" style="background:var(--border);color:var(--muted)">Live Only</span>';
+    html+='<div class="card provider-card"><div class="name">'+esc(v.name)+' '+badge+'</div>';
+    html+='<p style="color:var(--muted);font-size:13px;margin:8px 0">'+esc(v.description)+'</p>';
+    if(v.config_fields&&v.config_fields.length>0){
+      html+='<div style="font-size:12px;color:var(--muted)">Config: ';
+      for(var j=0;j<v.config_fields.length;j++){
+        var f=v.config_fields[j];
+        html+='<code>'+esc(f.name)+'</code>'+(j<v.config_fields.length-1?', ':'');
+      }
+      html+='</div>';
+    }
+    html+='</div>';
+  }
+  document.getElementById('guardrails-catalog').innerHTML=html;
+  document.getElementById('guardrails-content').style.display='block';
+  hideSpinner('guardrails');
+  loadGuardrailStats();
+  loadGuardrailProviderHealth();
+  // Auto-refresh stats every 30s
+  if(window._grStatsTimer)clearInterval(window._grStatsTimer);
+  window._grStatsTimer=setInterval(function(){loadGuardrailStats();loadGuardrailProviderHealth();},30000);
+}
+
+async function loadGuardrailStats(){
+  try{
+    const s=await api('/admin/guardrails/stats');
+    if(!s)return;
+    var html='<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:16px">';
+    html+='<div class="card stat"><div class="value" style="color:var(--red)">'+s.total_blocks+'</div><div class="label">Blocks</div></div>';
+    html+='<div class="card stat"><div class="value" style="color:var(--yellow)">'+s.total_redactions+'</div><div class="label">Redactions</div></div>';
+    html+='<div class="card stat"><div class="value" style="color:var(--green)">'+s.total_passes+'</div><div class="label">Passes</div></div>';
+    html+='<div class="card stat"><div class="value">'+(s.block_rate_pct||0).toFixed(1)+'%</div><div class="label">Block Rate</div></div>';
+    html+='</div>';
+    if(s.stages&&s.stages.length>0){
+      html+='<table><thead><tr><th>Stage</th><th>Direction</th><th>Blocks</th><th>Redactions</th></tr></thead><tbody>';
+      for(var i=0;i<s.stages.length;i++){
+        var st=s.stages[i];
+        html+='<tr><td>'+esc(st.name)+'</td><td>'+esc(st.direction)+'</td><td style="color:var(--red)">'+st.blocks+'</td><td style="color:var(--yellow)">'+st.redactions+'</td></tr>';
+      }
+      html+='</tbody></table>';
+    }
+    var el=document.getElementById('gr-stats');
+    if(el)el.innerHTML=html;
+  }catch(e){}
+}
+
+async function loadGuardrailProviderHealth(){
+  try{
+    const providers=await api('/admin/health/providers');
+    var el=document.getElementById('gr-provider-health');
+    if(!el)return;
+    if(!providers||providers.length===0){
+      el.innerHTML='<div style="color:var(--muted);font-size:13px">No provider health data available</div>';
+      return;
+    }
+    var html='<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px">';
+    for(var i=0;i<providers.length;i++){
+      var p=providers[i];
+      var badgeCls='green',badgeText='Healthy';
+      if(!p.healthy){badgeCls='red';badgeText='Unhealthy'}
+      else if(p.consecutive_failures>0){badgeCls='yellow';badgeText='Degraded'}
+      html+='<div class="card provider-card" style="margin:0"><div class="name" style="font-size:13px">'+esc(p.name)+' <span class="badge '+badgeCls+'">'+badgeText+'</span></div>';
+      html+='<div class="meta" style="font-size:11px"><span>Fails: '+p.consecutive_failures+'</span></div></div>';
+    }
+    html+='</div>';
+    el.innerHTML=html;
+  }catch(e){}
+}
+
+async function testGuardrailJS(){
+  var type=document.getElementById('gr-test-type').value;
+  var dir=document.getElementById('gr-test-direction').value;
+  var text=document.getElementById('gr-test-text').value;
+  if(!text){showToast('Enter sample text to test','error');return;}
+  var config={};
+  if(type==='pii')config={types:['email','credit_card','phone'],action:'redact'};
+  else if(type==='keyword')config={blocklist:['forbidden','blocked','deny'],action:'block'};
+  else if(type==='length')config={max_chars:100};
+  else if(type==='regex')config={patterns:[{name:'test',pattern:'\\b\\d{4}\\b',action:'redact',replacement:'[NUM]'}]};
+  else if(type==='json_schema')config={schema:'{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}'};
+  try{
+    const r=await fetch(API+'/admin/guardrails/test',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify({type:type,config:config,text:text,direction:dir})});
+    const res=await r.json();
+    if(!r.ok){showToast(res.error||'Test failed','error');return;}
+    var statusColor=res.action==='pass'?'var(--green)':res.action==='redact'?'var(--yellow)':'var(--red)';
+    var statusLabel=res.action==='pass'?'✓ Passed':res.action==='redact'?'⚠ Redacted':'✗ Blocked';
+    var html='<div style="padding:12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg)">';
+    html+='<div style="font-size:16px;font-weight:600;color:'+statusColor+'">'+statusLabel+'</div>';
+    html+='<div style="color:var(--muted);font-size:13px;margin-top:4px">Stage: '+esc(res.stage_name||type)+'</div>';
+    if(res.message)html+='<div style="margin-top:8px;font-size:13px">'+esc(res.message)+'</div>';
+    if(res.redacted_text)html+='<div style="margin-top:8px;font-size:12px;font-family:monospace;background:var(--surface);padding:8px;border-radius:4px">'+esc(res.redacted_text)+'</div>';
+    html+='</div>';
+    document.getElementById('gr-test-result').innerHTML=html;
+    document.getElementById('gr-test-result').style.display='block';
+  }catch(e){showToast('Test failed: '+e.message,'error');}
+}
+
+// ═══════════════════════════════════════════════════════════
+// BATCH-53 TASK-02: MCP Servers Panel
+// ═══════════════════════════════════════════════════════════
+
+var mcpTimer=null;
+function loadMCP(){
+  fetch('/admin/mcp/servers',{headers:{'Authorization':'Bearer '+token}})
+  .then(function(r){return r.json()})
+  .then(function(data){
+    var h='<div style="display:grid;gap:12px">';
+    data.servers.forEach(function(s){
+      var sc=s.status==='connected'?'#22c55e':s.status==='error'?'#ef4444':'#f59e0b';
+      h+='<div class="card"><div style="display:flex;justify-content:space-between;align-items:center">'
+        +'<strong>'+esc(s.name)+'</strong>'
+        +'<span style="background:'+sc+';color:#fff;padding:2px 8px;border-radius:4px;font-size:12px">'+esc(s.status)+'</span>'
+        +'</div><div style="margin-top:8px"><span class="muted">Tools: '+s.tools+'</span></div>';
+      if(s.tool_list&&s.tool_list.length>0){
+        h+='<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px">';
+        s.tool_list.forEach(function(t){h+='<span class="badge">'+esc(t)+'</span>';});
+        h+='</div>';
+      }
+      if(s.last_error) h+='<div style="margin-top:6px;color:var(--red);font-size:12px">'+esc(s.last_error)+'</div>';
+      h+='</div>';
+    });
+    h+='</div>';
+    h+='<p class="muted" style="margin-top:12px">'+data.connected+'/'+data.total+' servers connected</p>';
+    document.getElementById('mcp-servers').innerHTML=h;
+  }).catch(function(e){document.getElementById('mcp-servers').innerHTML='<p style="color:var(--red)">Error: '+esc(e.message)+'</p>';});
+  if(mcpTimer) clearInterval(mcpTimer);
+  mcpTimer=setInterval(loadMCP,30000);
+}
+
+// ═══════════════════════════════════════════════════════════
+// Providers Panel
+// ═══════════════════════════════════════════════════════════
+
+async function loadProviders(){
+  showSpinner('providers');
+  const providers=await api('/admin/health/providers');
+
+  if(!providers||providers.length===0){
+    document.getElementById('provider-cards').innerHTML=emptyState('🌐','No provider health data yet','Providers are configured in gateway.yaml. Health data appears after the first API request.','Read the Docs','window.open(\'/docs/getting-started\',\'_blank\')');
+    hideSpinner('providers');
+    return;
+  }
+
+  document.getElementById('provider-cards').innerHTML=providers.map(p=>{
+    let badgeCls,badgeText;
+    if(!p.healthy){badgeCls='red';badgeText='Unhealthy'}
+    else if(p.consecutive_failures>0){badgeCls='yellow';badgeText='Degraded'}
+    else{badgeCls='green';badgeText='Healthy'}
+    const lastSuc=p.last_success?new Date(p.last_success).toLocaleString():'—';
+    const lastFail=p.last_failure?new Date(p.last_failure).toLocaleString():'—';
+    return'<div class="card provider-card"><div class="name">'+esc(p.name)+' <span class="badge '+badgeCls+'">'+badgeText+'</span></div><div class="meta"><span>Failures: '+p.consecutive_failures+'</span><span>Last success: '+lastSuc+'</span><span>Last failure: '+lastFail+'</span></div></div>';
+  }).join('');
+  hideSpinner('providers');
+}
+
+// ═══════════════════════════════════════════════════════════
+// Request Log Panel
+// ═══════════════════════════════════════════════════════════
+
+async function loadLogs(){
+  showSpinner('logs');
+  const model=document.getElementById('log-model').value;
+  const provider=document.getElementById('log-provider').value;
+  const stream=document.getElementById('log-stream').value;
+  let url='/admin/usage?limit=100';
+  if(model)url+='&model='+encodeURIComponent(model);
+  if(provider)url+='&provider='+encodeURIComponent(provider);
+  const data=await api(url);
+  const filtered=stream!==''?data.filter(r=>String(r.stream)===stream):data;
+
+  if(!filtered||filtered.length===0){
+    document.getElementById('logs-table').innerHTML='<tr><td colspan="7">'+emptyState('📋','No log entries','Make an API request to see request logs here.',null,null)+'</td></tr>';
+  }else{
+    document.getElementById('logs-table').innerHTML=filtered.map(r=>'<tr><td>'+(r.created_at||'').slice(11,19)+'</td><td>'+esc(r.model)+'</td><td>'+esc(r.provider)+'</td><td>'+(r.total_tokens||0)+'</td><td>$'+(r.cost_usd||0).toFixed(4)+'</td><td>'+(r.duration_ms||0)+'ms</td><td>'+(r.cache_hit?'<span class="badge green">HIT</span>':'—')+'</td></tr>').join('');
+  }
+  hideSpinner('logs');
+}
+
+// ═══════════════════════════════════════════════════════════
+// Utility
+// ═══════════════════════════════════════════════════════════
 
 function esc(s){if(!s)return'';const d=document.createElement('div');d.textContent=s;return d.innerHTML}
 
+// ═══════════════════════════════════════════════════════════
+// Create Project Modal
+// ═══════════════════════════════════════════════════════════
+
+function openCreateProjectModal(){document.getElementById('project-name').value='';document.getElementById('project-error').style.display='none';document.getElementById('modal-create-project').classList.remove('hidden')}
+function closeCreateProjectModal(){document.getElementById('modal-create-project').classList.add('hidden')}
+async function submitCreateProject(){
+  const name=document.getElementById('project-name').value.trim();
+  if(!name){document.getElementById('project-error').textContent='Project name is required';document.getElementById('project-error').style.display='block';return}
+  document.getElementById('project-error').style.display='none';
+  const res=await apiPost('/admin/projects',{name:name});
+  if(res.error){document.getElementById('project-error').textContent=esc(res.message||res.error);document.getElementById('project-error').style.display='block';return}
+  closeCreateProjectModal();
+  showToast('Project "'+name+'" created successfully','success');
+  loadOverview();
+  // Notify first-run if active
+  if(window._firstrunStep===1)advanceFirstRun(2);
+}
+
+// ═══════════════════════════════════════════════════════════
+// Create Key Modal
+// ═══════════════════════════════════════════════════════════
+
+async function openCreateKeyModal(){
+  document.getElementById('key-name').value='';document.getElementById('key-rpm').value='0';document.getElementById('key-budget').value='0';
+  document.getElementById('key-error').style.display='none';document.getElementById('key-success').style.display='none';
+  const projects=await api('/admin/projects');
+  const sel=document.getElementById('key-project');
+  sel.innerHTML=projects.map(p=>'<option value="'+p.id+'">'+esc(p.name)+'</option>').join('');
+  document.getElementById('modal-create-key').classList.remove('hidden');
+}
+function closeCreateKeyModal(){
+  document.getElementById('modal-create-key').classList.add('hidden');
+  document.getElementById('key-success').textContent='';document.getElementById('key-success').style.display='none';
+  const cb=document.getElementById('key-copy-btn');if(cb)cb.remove();
+}
+async function submitCreateKey(){
+  const projectId=document.getElementById('key-project').value;
+  const name=document.getElementById('key-name').value.trim();
+  if(!name){document.getElementById('key-error').textContent='Key name is required';document.getElementById('key-error').style.display='block';return}
+  if(!projectId){document.getElementById('key-error').textContent='Select a project';document.getElementById('key-error').style.display='block';return}
+  document.getElementById('key-error').style.display='none';
+  const rpm=parseInt(document.getElementById('key-rpm').value)||0;
+  const budget=parseFloat(document.getElementById('key-budget').value)||0;
+  const res=await apiPost('/admin/keys',{project_id:projectId,name:name,rpm_limit:rpm,budget_limit_usd:budget});
+  if(res.error){document.getElementById('key-error').textContent=esc(res.message||res.error);document.getElementById('key-error').style.display='block';return}
+  document.getElementById('key-success').textContent='Key created. Copy it now — it will not be shown again:\n'+res.key;
+  document.getElementById('key-success').style.display='block';
+  let copyBtn=document.getElementById('key-copy-btn');
+  if(!copyBtn){copyBtn=document.createElement('button');copyBtn.id='key-copy-btn';copyBtn.className='btn-primary';copyBtn.style.marginTop='8px';document.getElementById('key-success').after(copyBtn)}
+  copyBtn.textContent='Copy to Clipboard';
+  copyBtn.onclick=()=>copyToClipboard(res.key,copyBtn);
+  showToast('Key "'+name+'" created successfully','success');
+  loadKeys();
+  // Notify first-run if active
+  if(window._firstrunStep===2){window._firstrunKey=res.key;advanceFirstRun(3)}
+}
+
+// ═══════════════════════════════════════════════════════════
+// BATCH-28 TASK-04: First-Run 3-Step Overlay
+// ═══════════════════════════════════════════════════════════
+
+window._firstrunStep=0;
+window._firstrunKey='';
+window._firstrunProviders=[];
+window._selectedProvider='';
+
+function showFirstRun(){
+  document.getElementById('modal-firstrun').classList.remove('hidden');
+  advanceFirstRun(1);
+  // Fetch registry providers for the dropdown
+  fetchRegistryProviders();
+}
+
+function dismissFirstRun(){
+  document.getElementById('modal-firstrun').classList.add('hidden');
+  localStorage.setItem('openlimit_firstrun_done','1');
+  window._firstrunStep=0;
+}
+
+async function fetchRegistryProviders(){
+  try{
+    const headers={'Content-Type':'application/json'};
+    if(token)headers['Authorization']='Bearer '+token;
+    const r=await fetch(API+'/admin/providers/registry',{headers});
+    if(r.ok){
+      const data=await r.json();
+      window._firstrunProviders=data.providers||[];
+      // Re-render step 1 if we're on it
+      if(window._firstrunStep===1)renderStep1();
+    }
+  }catch(e){/* ignore — dropdown stays empty */}
+}
+
+function renderStep1(){
+  const body=document.getElementById('firstrun-body');
+  const provs=window._firstrunProviders;
+  let options='<option value="">— Select a provider —</option>';
+  for(const p of provs){
+    const suffix=p.available?' ✓':'';
+    options+='<option value="'+esc(p.name)+'"'+(p.available?' style="color:var(--green)"':'')+'>'+esc(p.name)+suffix+'</option>';
+  }
+  body.innerHTML=stepDots(1)+
+    '<div class="firstrun-step"><h4>Step 1: Choose Your Provider</h4>'+
+    '<p>OpenLimit supports 30+ providers. Pick one to get started.</p>'+
+    '<div style="margin-bottom:16px"><select id="firstrun-provider" style="width:100%;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:14px">'+
+    (provs.length?options:'<option value="">Loading providers…</option>')+
+    '</select></div>'+
+    '<div style="text-align:center"><button class="btn-primary" onclick="advanceFirstRun(2)">Next — Get Your Key</button></div></div>';
+}
+
+function stepDots(step){
+  return '<div class="step-indicator">'+
+    '<div class="step-dot '+(step>1?'done':step===1?'active':'')+'"></div>'+
+    '<div class="step-dot '+(step>2?'done':step===2?'active':'')+'"></div>'+
+    '<div class="step-dot '+(step>=3?'active':'')+'"></div>'+
+    '</div>';
+}
+
+function advanceFirstRun(step){
+  window._firstrunStep=step;
+  const body=document.getElementById('firstrun-body');
+
+  if(step===1){
+    renderStep1();
+  }else if(step===2){
+    // Remember selected provider
+    const sel=document.getElementById('firstrun-provider');
+    window._selectedProvider=sel?sel.value:'';
+    body.innerHTML=stepDots(2)+
+      '<div class="firstrun-step"><h4>Step 2: Get Your Virtual Key</h4>'+
+      '<p>One click creates a project and generates an API key.</p>'+
+      (window._selectedProvider?'<p style="color:var(--accent);font-size:12px;margin-bottom:8px">Provider: '+esc(window._selectedProvider)+'</p>':'')+
+      '<div style="text-align:center;margin-top:12px" id="quickstart-btn-area"><button class="btn-primary" onclick="runQuickstart()" id="btn-quickstart">Create Key Instantly</button></div>'+
+      '<p style="color:var(--muted);font-size:11px;text-align:center;margin-top:12px">This creates a project and virtual key with default settings.</p></div>';
+  }else if(step===3){
+    const key=window._firstrunKey||'gw-YOUR-KEY-HERE';
+    const curlCmd='curl http://localhost:8080/v1/chat/completions \\\n  -H "Authorization: Bearer '+key+'" \\\n  -H "Content-Type: application/json" \\\n  -d \'{\n    "model": "fast",\n    "messages": [{"role":"user","content":"Hello!"}]\n  }\'';
+    body.innerHTML=stepDots(3)+
+      '<div class="firstrun-step"><h4>Step 3: Try Your First Request</h4>'+
+      '<p>Copy this curl command and run it in your terminal:</p>'+
+      '<div class="code-block"><button class="copy-btn" onclick="copyToClipboard(this.parentElement.textContent.replace(\'Copy\',\'\').trim(),this)">Copy</button>'+esc(curlCmd)+'</div>'+
+      '<div style="text-align:center;margin-top:8px"><button class="btn-primary" onclick="dismissFirstRun()">Done — Open Dashboard</button></div>'+
+      '<p style="color:var(--green);font-size:12px;text-align:center;margin-top:8px">✓ You\'re all set!</p></div>';
+  }
+}
+
+async function runQuickstart(){
+  const btn=document.getElementById('btn-quickstart');
+  if(!btn)return;
+  btn.disabled=true;
+  btn.textContent='Creating…';
+  try{
+    const headers={'Content-Type':'application/json'};
+    if(token)headers['Authorization']='Bearer '+token;
+    const r=await fetch(API+'/admin/quickstart',{method:'POST',headers,body:JSON.stringify({name:'quickstart'})});
+    if(!r.ok){const e=await r.json();throw new Error(e.error||e.message||r.status)}
+    const res=await r.json();
+    window._firstrunKey=res.key&&res.key.key||'';
+    advanceFirstRun(3);
+  }catch(e){
+    btn.disabled=false;
+    btn.textContent='Create Key Instantly';
+    showToast('Failed: '+e.message,'error');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// BATCH-29 TASK-02: Edit Key Modal
+// ═══════════════════════════════════════════════════════════
+
+// Store all keys for detail/edit access
+let _allKeys=[];
+let _allProjects=[];
+
+function openEditKeyModal(keyId){
+  const k=_allKeys.find(x=>x.id===keyId);
+  if(!k)return;
+  document.getElementById('edit-key-id').value=k.id;
+  document.getElementById('edit-key-name').value=k.name||'';
+  document.getElementById('edit-key-rpm').value=k.rpm_limit||0;
+  document.getElementById('edit-key-tpm').value=k.tpm_limit||0;
+  document.getElementById('edit-key-budget').value=k.budget_limit_usd||0;
+  document.getElementById('edit-key-period').value=k.budget_period||'monthly';
+  document.getElementById('edit-key-models').value=(k.allowed_models||[]).join(',');
+  document.getElementById('edit-key-providers').value=(k.allowed_providers||[]).join(',');
+  document.getElementById('edit-key-tools').value=(k.allowed_tools||[]).join(',');
+  document.getElementById('edit-key-mcp').checked=k.allow_mcp_server||false;
+  document.getElementById('edit-key-mcp-tool').value=k.mcp_tool_name||'';
+  document.getElementById('edit-key-error').style.display='none';
+  document.getElementById('modal-edit-key').classList.remove('hidden');
+}
+function closeEditKeyModal(){document.getElementById('modal-edit-key').classList.add('hidden')}
+async function submitEditKey(){
+  const id=document.getElementById('edit-key-id').value;
+  const name=document.getElementById('edit-key-name').value.trim();
+  if(!name){document.getElementById('edit-key-error').textContent='Key name is required';document.getElementById('edit-key-error').style.display='block';return}
+  const parseCSV=s=>s?s.split(',').map(x=>x.trim()).filter(Boolean):[];
+  const body={
+    name,
+    rpm_limit:parseInt(document.getElementById('edit-key-rpm').value)||0,
+    tpm_limit:parseInt(document.getElementById('edit-key-tpm').value)||0,
+    budget_limit_usd:parseFloat(document.getElementById('edit-key-budget').value)||0,
+    budget_period:document.getElementById('edit-key-period').value,
+    allowed_models:parseCSV(document.getElementById('edit-key-models').value),
+    allowed_providers:parseCSV(document.getElementById('edit-key-providers').value),
+    allowed_tools:parseCSV(document.getElementById('edit-key-tools').value),
+    allow_mcp_server:document.getElementById('edit-key-mcp').checked,
+    mcp_tool_name:document.getElementById('edit-key-mcp-tool').value.trim()
+  };
+  try{
+    const r=await fetch(API+'/admin/keys/'+encodeURIComponent(id),{method:'PATCH',headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(!r.ok){const e=await r.json();throw new Error(e.error||e.message||r.status)}
+    closeEditKeyModal();showToast('Key updated successfully','success');loadKeys();
+  }catch(e){showToast('Failed to update key: '+e.message,'error')}
+}
+
+// ═══════════════════════════════════════════════════════════
+// BATCH-29 TASK-03: Key Detail Panel
+// ═══════════════════════════════════════════════════════════
+
+function openKeyDetail(keyId){
+  const k=_allKeys.find(x=>x.id===keyId);
+  if(!k)return;
+  const pName=_allProjects.find(p=>p.id===k.project_id)?.name||k.project_id;
+  document.getElementById('detail-key-name').textContent=k.name;
+  const fmt=(v,d)=>v!=null?(d?v.toFixed(d):v):'—';
+  const csv=a=>(a&&a.length)?a.join(', '):'All';
+  document.getElementById('detail-key-body').innerHTML=`
+    <table style="font-size:13px"><tbody>
+    <tr><td style="color:var(--muted);width:140px">Prefix</td><td><code>${esc(k.key_prefix)}...</code></td></tr>
+    <tr><td style="color:var(--muted)">Project</td><td>${esc(pName)}</td></tr>
+    <tr><td style="color:var(--muted)">Created</td><td>${k.created_at||'—'}</td></tr>
+    <tr><td style="color:var(--muted)">RPM Limit</td><td>${k.rpm_limit||'∞'}</td></tr>
+    <tr><td style="color:var(--muted)">TPM Limit</td><td>${k.tpm_limit||'∞'}</td></tr>
+    <tr><td style="color:var(--muted)">Budget</td><td>${k.budget_limit_usd>0?'$'+k.budget_limit_usd.toFixed(2)+'/'+(k.budget_period||'monthly'):'Unlimited'}</td></tr>
+    <tr><td style="color:var(--muted)">Models</td><td>${csv(k.allowed_models)}</td></tr>
+    <tr><td style="color:var(--muted)">Providers</td><td>${csv(k.allowed_providers)}</td></tr>
+    <tr><td style="color:var(--muted)">Tools</td><td>${csv(k.allowed_tools)}</td></tr>
+    <tr><td style="color:var(--muted)">MCP Server</td><td>${k.allow_mcp_server?'Enabled':'Disabled'}</td></tr>
+    ${k.mcp_tool_name?'<tr><td style="color:var(--muted)">MCP Tool</td><td>'+esc(k.mcp_tool_name)+'</td></tr>':''}
+    ${k.revoked_at?'<tr><td style="color:var(--red)">Revoked</td><td>'+k.revoked_at+'</td></tr>':''}
+    </tbody></table>
+    <div style="margin-top:20px;display:flex;gap:8px">
+      <button class="btn-primary" style="flex:1" onclick="closeKeyDetail();openEditKeyModal('${esc(k.id)}')">Edit</button>
+      <button class="btn-secondary" style="flex:1;background:var(--red);color:#fff;border-color:var(--red)" onclick="closeKeyDetail();revokeKey('${esc(k.id)}','${esc(k.name)}')">Revoke</button>
+    </div>`;
+  document.getElementById('key-detail-panel').style.right='0';
+  document.getElementById('key-detail-backdrop').style.display='block';
+}
+function closeKeyDetail(){
+  document.getElementById('key-detail-panel').style.right='-420px';
+  document.getElementById('key-detail-backdrop').style.display='none';
+}
+
+// ═══════════════════════════════════════════════════════════
+// BATCH-29 TASK-04: Delete Project
+// ═══════════════════════════════════════════════════════════
+
+async function deleteProject(projectId,projectName){
+  // Count keys in this project
+  const keysInProject=_allKeys.filter(k=>k.project_id===projectId);
+  const msg=keysInProject.length>0
+    ?`Delete project "${projectName}"? This will orphan ${keysInProject.length} key(s). The keys will remain active but unlinked.`
+    :`Delete project "${projectName}"? This cannot be undone.`;
+  if(!confirm(msg))return;
+  try{
+    const r=await fetch(API+'/admin/projects/'+encodeURIComponent(projectId),{method:'DELETE',headers:{'Authorization':'Bearer '+token}});
+    if(!r.ok)throw new Error(r.status);
+    showToast('Project "'+projectName+'" deleted','success');
+    loadOverview();
+  }catch(e){showToast('Failed to delete project ('+e.message+')','error')}
+}
+
+// ═══════════════════════════════════════════════════════════
+// Keyboard Handlers
+// ═══════════════════════════════════════════════════════════
+
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){
+    closeCreateProjectModal();
+    closeCreateKeyModal();
+    closeEditKeyModal();
+    closeKeyDetail();
+    if(!document.getElementById('modal-firstrun').classList.contains('hidden'))dismissFirstRun();
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
 // Init
-loadOverview();loadProjectFilter();
+// ═══════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════
+// BATCH-35 TASK-01: Hash-based tab routing
+// ═══════════════════════════════════════════════════════════
+
+function activateTabByHash(){
+  const hash=window.location.hash.replace('#','');
+  const tab=document.querySelector('.tab[data-panel="'+hash+'"]');
+  if(tab){
+    document.querySelectorAll('.tab').forEach(x=>{x.classList.remove('active');x.setAttribute('aria-selected','false')});
+    document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
+    tab.classList.add('active');
+    tab.setAttribute('aria-selected','true');
+    document.getElementById('panel-'+hash).classList.add('active');
+    loadPanel(hash);
+  }
+}
+
+window.onhashchange=activateTabByHash;
+activateTabByHash();
+
+loadOverview();
+loadProjectFilter();
 </script>
 </body>
 </html>

@@ -19,6 +19,7 @@
 8. [Document Lifecycle & Audit Trail](#8-document-lifecycle--audit-trail)
 9. [Roles & Responsibilities](#9-roles--responsibilities)
 10. [Sprint Checklists](#10-sprint-checklists)
+10.1 [Session Lifecycle Management](#101-session-lifecycle-management)
 11. [Operational Principles](#11-operational-principles)
 12. [Codebase State File](#12-codebase-state-file)
 13. [Test Integrity Protocol](#13-test-integrity-protocol)
@@ -1534,6 +1535,85 @@ See §5.3 for full procedure. Summary:
 [ ] All documents (correct count for cycle mode) archived under /docs/aiv/[BATCH-ID]/
 [ ] Batch marked closed in project tracker
 ```
+
+---
+
+## 10.1 SESSION LIFECYCLE MANAGEMENT
+
+Proven across Phase 9 (8 batches, 47 tags). Eliminates session stalls by
+replacing passive polling with active message-based lifecycle management.
+
+### 10.1.1 The Stall Problem
+
+Spawned Reviewer and Assistant sessions frequently stall — completing work
+but never reporting back, or failing to start due to restricted permissions.
+Passive polling (`sleep` + `git log`) is slow and unreliable as a completion
+detector.
+
+### 10.1.2 Reviewer Session Lifecycle
+
+```
+1. SPAWN  permissionMode: "allow-all" (Execute Mode)
+   Prompt must include:
+   "After completing your review, send a message to the Lead session
+    with a summary: file written, commit hash, total flags, severity,
+    recommendation."
+
+2. WAIT   for message from Reviewer
+   The message IS the completion signal.
+   If no message within Review SLA (30 min):
+     a. Send probe: "Status?"
+     b. If no reply after 10 min: Lead Override (§5.3)
+
+3. LEAD   Write Lead Response in Blueprint
+
+4. DISMISS
+   send_agent_message(session_id,
+     "Review complete. Set your status to 'done'.")
+   set_session_status("done") on reviewer session
+```
+
+### 10.1.3 Assistant Session Lifecycle
+
+```
+1. SPAWN  permissionMode: "allow-all" (Execute Mode)
+   Prompt must include:
+   "After completing your task, send a message to the Lead session
+    with a summary: files changed, test count, commit hash,
+    any deviations or adaptations."
+
+2. WAIT   for message from Assistant
+   The message IS the completion signal.
+   If no message within Execution SLA (90 min):
+     a. Send probe: "Status?"
+     b. If no reply after 15 min: Lead Override (§5.3)
+
+3. LEAD   Verify: run tests, examine output, sign certificate
+
+4. DISMISS
+   send_agent_message(session_id,
+     "Task complete. Set your status to 'done'.")
+   set_session_status("done") on assistant session
+```
+
+### 10.1.4 Key Rules
+
+1. **Always use `permissionMode: "allow-all"`** for spawned sessions.
+   Restricted modes caused the majority of Phase 9 stalls.
+
+2. **The message IS the completion signal.** Do not rely on `git log`,
+   file existence, or session status alone. A session that messages you
+   has completed its work.
+
+3. **Explicit dismissal.** After the Lead finishes their role, message
+   the session to set status to `"done"`. This frees session resources
+   and provides a clean audit trail.
+
+4. **Probe before override.** One probe message before invoking Lead
+   Override. The session may be working but slow.
+
+5. **Lead Override remains available** as a last resort (§5.3), but
+   should be rare with this pattern.
 
 ---
 
