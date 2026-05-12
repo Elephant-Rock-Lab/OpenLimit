@@ -100,6 +100,11 @@ code{background:var(--bg);padding:2px 6px;border-radius:4px;font-size:12px}
 /* BATCH-48 TASK-02: Budget bar */
 .budget-bar{transition:width .3s}
 
+/* BATCH-63 TASK-03: Colorblind-friendly budget bar classes */
+.budget-bar-safe{background:var(--green)}
+.budget-bar-warning{background:var(--yellow);background-image:repeating-linear-gradient(45deg,transparent,transparent 4px,rgba(0,0,0,0.15) 4px,rgba(0,0,0,0.15) 8px)}
+.budget-bar-danger{background:var(--red);background-image:repeating-linear-gradient(45deg,transparent,transparent 4px,rgba(0,0,0,0.15) 4px,rgba(0,0,0,0.15) 8px)}
+
 /* BATCH-62 TASK-01: Inline login form */
 #login-form{position:fixed;top:0;left:0;width:100%;height:100%;background:var(--bg);z-index:3000;display:flex;align-items:center;justify-content:center}
 #login-form.hidden{display:none}
@@ -109,6 +114,49 @@ code{background:var(--bg);padding:2px 6px;border-radius:4px;font-size:12px}
 .login-card input[type="password"]{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;color:var(--text);font-size:14px;margin-bottom:12px}
 .login-card input[type="password"]:focus{outline:none;border-color:var(--accent)}
 #login-error{color:var(--red);font-size:13px;margin-bottom:12px}
+
+/* BATCH-63 TASK-02: Focus-visible outlines for accessibility */
+button:focus-visible,
+.btn-primary:focus-visible,
+.btn-secondary:focus-visible,
+.btn-sm:focus-visible,
+.tab:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible{
+outline:2px solid var(--accent);
+outline-offset:2px
+}
+
+/* BATCH-63 TASK-02: Tablet breakpoint */
+@media(max-width:1024px){
+.container{padding:16px}
+.card{padding:16px}
+.header{padding:10px 16px}
+.tabs{padding:0 16px}
+.tab{padding:8px 14px;font-size:13px}
+.stat .value{font-size:24px}
+h2{font-size:15px}
+.grid{grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+}
+
+/* BATCH-63 TASK-02: Mobile breakpoint */
+@media(max-width:768px){
+.header{flex-direction:column;align-items:flex-start;gap:8px;padding:10px 12px}
+.tabs{flex-direction:column;padding:0 12px}
+.tab{border-bottom:none;border-left:2px solid transparent;padding:10px 12px}
+.tab.active{border-bottom-color:transparent;border-left-color:var(--accent)}
+.container{padding:12px}
+.card{padding:12px}
+.grid{grid-template-columns:1fr}
+.filters{flex-direction:column}
+.filters input,.filters select,.filters button{width:100%}
+.modal{min-width:auto;max-width:calc(100vw - 24px);margin:12px}
+table{font-size:12px}
+th,td{padding:6px 8px}
+.chart-bar .bar-label{width:70px}
+#key-detail-panel{width:100%;right:-100%}
+}
 </style>
 </head>
 <body>
@@ -590,14 +638,14 @@ async function loadProjectFilter(){const projects=await api('/admin/projects');c
 // ═══════════════════════════════════════════════════════════
 
 // computeStatusJS mirrors Go computeKeyStatus for client-side rendering.
-// Returns "unlimited" when budgetLimit is 0, "healthy" when utilization < 75%,
-// "warning" when 75% <= utilization <= 95%, and "critical" when utilization > 95%.
+// Returns "unlimited" when budgetLimit is 0, "safe" when utilization < 70%,
+// "warning" when 70% <= utilization <= 90%, and "danger" when utilization > 90%.
 function computeStatusJS(spend, budgetLimit) {
   if (!budgetLimit || budgetLimit <= 0) return 'unlimited';
   var pct = (spend / budgetLimit) * 100;
-  if (pct > 95) return 'critical';
-  if (pct >= 75) return 'warning';
-  return 'healthy';
+  if (pct > 90) return 'danger';
+  if (pct >= 70) return 'warning';
+  return 'safe';
 }
 
 async function loadSpend() {
@@ -637,16 +685,15 @@ async function loadSpend() {
     var status = computeStatusJS(k.spend_usd, k.budget_limit_usd);
     var pct = k.utilization_pct || 0;
     var barWidth = Math.min(pct, 100);
-    var barColor = 'var(--accent)'; // default
-    if (status === 'critical') barColor = 'var(--red)';
-    else if (status === 'warning') barColor = 'var(--yellow)';
-    else if (status === 'healthy') barColor = 'var(--green)';
-    else barColor = 'var(--muted)'; // unlimited
+    var barClass = 'budget-bar'; // base class
+    if (status === 'danger') barClass += ' budget-bar-danger';
+    else if (status === 'warning') barClass += ' budget-bar-warning';
+    else if (status === 'safe') barClass += ' budget-bar-safe';
 
     var statusBadge = '';
-    if (status === 'critical') statusBadge = '<span class="badge red">Critical</span>';
+    if (status === 'danger') statusBadge = '<span class="badge red">Danger</span>';
     else if (status === 'warning') statusBadge = '<span class="badge yellow">Warning</span>';
-    else if (status === 'healthy') statusBadge = '<span class="badge green">Healthy</span>';
+    else if (status === 'safe') statusBadge = '<span class="badge green">Safe</span>';
     else statusBadge = '<span class="badge" style="background:var(--border);color:var(--muted)">Unlimited</span>';
 
     keysHtml += '<div class="budget-bar-item" style="margin-bottom:16px;padding:12px 0;border-bottom:1px solid var(--border)">';
@@ -656,7 +703,7 @@ async function loadSpend() {
     keysHtml += '</div>';
     if (k.budget_limit_usd > 0) {
       keysHtml += '<div style="background:var(--bg);border-radius:4px;height:8px;overflow:hidden">';
-      keysHtml += '<div class="budget-bar" style="height:100%;width:' + barWidth + '%;background:' + barColor + ';border-radius:4px;transition:width .3s"></div>';
+      keysHtml += '<div class="' + barClass + '" style="height:100%;width:' + barWidth + '%;border-radius:4px;transition:width .3s"></div>';
       keysHtml += '</div>';
       keysHtml += '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + pct.toFixed(1) + '% utilized</div>';
     }
