@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -9,10 +10,13 @@ import (
 
 	"time"
 
+	"openlimit/internal/metrics"
+
 	"golang.org/x/crypto/bcrypt"
 
 	"openlimit/internal/audit"
 	"openlimit/internal/config"
+	"openlimit/internal/providers"
 	"openlimit/internal/requestid"
 	"openlimit/internal/store"
 
@@ -33,6 +37,7 @@ type Handler struct {
 // metricsRecorder records RBAC and other admin metrics.
 type metricsRecorder interface {
 	RecordRBACCheck(role, action, result string)
+	GetGuardrailStats() metrics.GuardrailStatsSnapshot
 }
 
 // NewHandler creates a new admin handler.
@@ -55,10 +60,22 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /admin/keys/{id}", h.updateKey)
 	mux.HandleFunc("PATCH /admin/keys/{id}", h.patchKey)
 	mux.HandleFunc("DELETE /admin/keys/{id}", h.revokeKey)
+	mux.HandleFunc("POST /admin/keys/{id}/rotate", h.rotateKey)
 	mux.HandleFunc("GET /admin/usage", h.usage)
 	mux.HandleFunc("GET /admin/usage/summary", h.usageSummary)
+	mux.HandleFunc("GET /admin/usage/spend", h.spend)
 	mux.HandleFunc("GET /admin/audit", h.queryAuditLogs)
 	mux.HandleFunc("POST /admin/quickstart", h.handleQuickstart)
+	mux.HandleFunc("GET /admin/providers/registry", h.listRegistryProviders)
+
+	mux.HandleFunc("GET /admin/roles", h.listRoles)
+
+	// BATCH-49: Guardrail catalog + test endpoints
+	mux.HandleFunc("GET /admin/guardrails/catalog", h.listGuardrailCatalog)
+	mux.HandleFunc("POST /admin/guardrails/test", h.testGuardrail)
+
+	// BATCH-50: Guardrail stats endpoint
+	mux.HandleFunc("GET /admin/guardrails/stats", h.getGuardrailStats)
 
 	// RBAC user management (only when RBAC is enabled)
 	if h.rbacEnabled {
@@ -98,7 +115,7 @@ func BearerAuth(token string, auditLog *audit.Logger, oidcProvider *oidcPkg.Prov
 		}
 
 		// Static bearer token fallback
-		if token != "" && rawToken == token {
+		if token != "" && subtle.ConstantTimeCompare([]byte(rawToken), []byte(token)) == 1 {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -169,15 +186,8 @@ func (h *Handler) handleQuickstart(w http.ResponseWriter, r *http.Request) {
 		BudgetLimitUSD float64 `json:"budget_limit_usd"`
 	}
 	if err := readJSON(r, &req); err != nil {
-		// Allow empty body (readJSON returns error for empty body).
-		// Only reject if body had non-empty content we couldn't parse.
-		if r.Body != nil {
-			buf := make([]byte, 1)
-			if n, _ := r.Body.Read(buf); n > 0 {
-				writeAdminError(w, r, http.StatusBadRequest, "invalid_request", "invalid JSON body")
-				return
-			}
-		}
+		writeAdminError(w, r, http.StatusBadRequest, "invalid_request", "invalid JSON body")
+		return
 	}
 
 	keyName := req.Name
@@ -245,4 +255,35 @@ func maskToken(auth string) string {
 		return auth[:4] + "****"
 	}
 	return "****"
+}
+
+// listRegistryProviders returns all providers from the embedded registry.
+func (h *Handler) listRegistryProviders(w http.ResponseWriter, r *http.Request) {
+	type providerEntry struct {
+		Name      string `json:"name"`
+		Type      string `json:"type"`
+		BaseURL   string `json:"base_url"`
+		Available bool   `json:"available"` // true if configured in user's config
+	}
+
+	// Check which providers the user has configured
+	configured := map[string]bool{}
+	for name, pc := range h.cfg.Providers {
+		configured[name] = pc.BaseURL != ""
+	}
+
+	entries := make([]providerEntry, 0, len(providers.DefaultRegistry))
+	for name, def := range providers.DefaultRegistry {
+		entries = append(entries, providerEntry{
+			Name:      name,
+			Type:      def.BaseType,
+			BaseURL:   def.BaseURL,
+			Available: configured[name],
+		})
+	}
+
+	writeAdminJSON(w, http.StatusOK, map[string]any{
+		"providers": entries,
+		"total":     len(entries),
+	})
 }

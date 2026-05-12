@@ -27,6 +27,18 @@ type HealthChecker interface {
 	IsHealthy(provider, model, region string) bool
 }
 
+// SmartWeights holds the configurable weights for smart routing.
+type SmartWeights struct {
+	Cost    float64 `yaml:"cost"`
+	Latency float64 `yaml:"latency"`
+	Health  float64 `yaml:"health"`
+}
+
+// DefaultSmartWeights returns the default smart routing weights (AR-05).
+func DefaultSmartWeights() SmartWeights {
+	return SmartWeights{Cost: 0.4, Latency: 0.4, Health: 0.2}
+}
+
 // Router selects provider targets for model requests with optional region awareness.
 type Router struct {
 	models          map[string]config.ModelConfig
@@ -34,10 +46,10 @@ type Router struct {
 	regionByBaseURL map[string]string                // normalized base URL → region name
 	regionDataRes   map[string]string                // region name → data residency tag
 	defaultRegion   string                           // gateway's own region
-	strategy        string                           // "priority" or "latency"
+	strategy        string                           // "priority", "latency", "cost", or "smart"
+	smartWeights    SmartWeights
 	latencyCache    *LatencyCache
 	health          HealthChecker // nil = no health tracking
-	rng             *rand.Rand
 }
 
 // LatencyCache caches per-region p50 latencies to avoid per-request histogram scans.
@@ -145,8 +157,20 @@ func New(models map[string]config.ModelConfig, providers map[string]config.Provi
 	}
 
 	var cache *LatencyCache
-	if strategy == "latency" && latencyReader != nil && len(combos) > 0 {
+	if (strategy == "latency" || strategy == "smart") && latencyReader != nil && len(combos) > 0 {
 		cache = NewLatencyCache(latencyReader, combos, 10*time.Second)
+	}
+
+	// Smart weights initialization (AR-05)
+	var sw SmartWeights
+	if routingCfg.CostWeights.Cost+routingCfg.CostWeights.Latency+routingCfg.CostWeights.Health > 0 {
+		sw = SmartWeights{
+			Cost:    routingCfg.CostWeights.Cost,
+			Latency: routingCfg.CostWeights.Latency,
+			Health:  routingCfg.CostWeights.Health,
+		}
+	} else {
+		sw = DefaultSmartWeights()
 	}
 
 	return &Router{
@@ -156,8 +180,8 @@ func New(models map[string]config.ModelConfig, providers map[string]config.Provi
 		regionDataRes:   regionDataRes,
 		defaultRegion:   routingCfg.Region,
 		strategy:        strategy,
+		smartWeights:    sw,
 		latencyCache:    cache,
-		rng:             rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 }
 
@@ -170,7 +194,7 @@ func (r *Router) Plan(model string) (*Plan, error) {
 		return nil, fmt.Errorf("model %q has no routes", model)
 	}
 
-	primary := chooseWeighted(r.rng, modelCfg.Routes)
+	primary := chooseWeighted(modelCfg.Routes)
 	targets := r.resolveTargets(primary, modelCfg.Fallbacks)
 
 	// Reorder targets: healthy first, unhealthy last (AC-03-02).
@@ -237,6 +261,17 @@ func (r *Router) resolveTargets(primary config.ModelRoute, fallbacks []config.Mo
 	return targets
 }
 
+// ModelNames returns a sorted list of all configured model alias names.
+// Used to enrich model_not_found error responses.
+func (r *Router) ModelNames() []string {
+	names := make([]string, 0, len(r.models))
+	for name := range r.models {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 // expandRoute expands a single route into per-region targets if the provider has regions.
 func (r *Router) expandRoute(route config.ModelRoute) []providers.Target {
 	regions, ok := r.providerRegions[route.Provider]
@@ -270,6 +305,10 @@ func (r *Router) selectBest(targets []providers.Target, model string) providers.
 	switch r.strategy {
 	case "latency":
 		return r.selectByLatency(targets, model)
+	case "cost":
+		return r.selectByCost(targets, model)
+	case "smart":
+		return r.selectSmart(targets, model)
 	default: // "priority"
 		return r.selectByPriority(targets)
 	}
@@ -331,7 +370,7 @@ func (r *Router) selectByPriority(targets []providers.Target) providers.Target {
 		return candidates[0]
 	}
 	// Random tie-break among equal candidates
-	return candidates[r.rng.Intn(len(candidates))]
+	return candidates[rand.Intn(len(candidates))]
 }
 
 // selectByLatency picks the target with the lowest cached p50.
@@ -390,7 +429,7 @@ func (r *Router) regionPriority(regionName string) int {
 	return 999 // unknown region → lowest priority
 }
 
-func chooseWeighted(rng *rand.Rand, routes []config.ModelRoute) config.ModelRoute {
+func chooseWeighted(routes []config.ModelRoute) config.ModelRoute {
 	if len(routes) == 1 {
 		return routes[0]
 	}
@@ -404,7 +443,7 @@ func chooseWeighted(rng *rand.Rand, routes []config.ModelRoute) config.ModelRout
 		total += weight
 	}
 
-	pick := rng.Intn(total)
+	pick := rand.Intn(total)
 	for _, route := range routes {
 		weight := route.Weight
 		if weight <= 0 {
@@ -417,6 +456,150 @@ func chooseWeighted(rng *rand.Rand, routes []config.ModelRoute) config.ModelRout
 	}
 
 	return routes[0]
+}
+
+// selectByCost selects the target with the lowest cost for the given model.
+func (r *Router) selectByCost(targets []providers.Target, model string) providers.Target {
+	type scored struct {
+		target providers.Target
+		cost   float64
+	}
+	items := make([]scored, 0, len(targets))
+	for _, t := range targets {
+		entry := LookupCost(t.Provider, t.Model)
+		var cost float64
+		if entry != nil {
+			cost = entry.avgCost()
+		} else {
+			cost = medianCost(CostCatalog) // AR-07
+		}
+		items = append(items, scored{target: t, cost: cost})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].cost < items[j].cost
+	})
+	return items[0].target
+}
+
+// selectSmart selects the target with the best combined cost+latency+health score.
+func (r *Router) selectSmart(targets []providers.Target, model string) providers.Target {
+	w := r.smartWeights
+	if w.Cost+w.Latency+w.Health == 0 {
+		w = DefaultSmartWeights()
+	}
+
+	// Collect costs
+	type scored struct {
+		target       providers.Target
+		costScore    float64
+		latencyScore float64
+		healthScore  float64
+		weighted     float64
+	}
+
+	items := make([]scored, len(targets))
+	costs := make([]float64, len(targets))
+	latencies := make([]float64, len(targets))
+
+	for i, t := range targets {
+		entry := LookupCost(t.Provider, t.Model)
+		if entry != nil {
+			costs[i] = entry.avgCost()
+		} else {
+			costs[i] = medianCost(CostCatalog) // AR-07
+		}
+		// Latency
+		if r.latencyCache != nil {
+			if p50, ok := r.latencyCache.Get(t.Provider, t.Model, t.Region); ok {
+				latencies[i] = float64(p50)
+			} else {
+				latencies[i] = 0 // will be replaced by median
+			}
+		} else {
+			latencies[i] = 0
+		}
+	}
+
+	// Compute median latency for missing values (AR-06)
+	var knownLatencies []float64
+	for _, l := range latencies {
+		if l > 0 {
+			knownLatencies = append(knownLatencies, l)
+		}
+	}
+	medLat := medianFloat(knownLatencies)
+	if medLat == 0 {
+		medLat = 1 // avoid division by zero
+	}
+	for i, l := range latencies {
+		if l == 0 {
+			latencies[i] = medLat
+		}
+	}
+
+	maxCost := maxFloat(costs)
+	if maxCost == 0 {
+		maxCost = 1 // degenerate: all equal → all score 0 (F-65-1 documented)
+	}
+	maxLat := maxFloat(latencies)
+	if maxLat == 0 {
+		maxLat = 1
+	}
+
+	for i, t := range targets {
+		// AR-01: cost score (lower cost = higher score)
+		costScore := 1.0 - (costs[i] / maxCost)
+		// AR-02: latency score (lower latency = higher score)
+		latencyScore := 1.0 - (latencies[i] / maxLat)
+		// AR-03/AR-08: health score
+		healthScore := 0.5 // unknown (AR-08)
+		if r.health != nil {
+			if r.health.IsHealthy(t.Provider, t.Model, t.Region) {
+				healthScore = 1.0
+			} else {
+				healthScore = 0.0
+			}
+		}
+		// AR-04: weighted sum
+		weighted := w.Cost*costScore + w.Latency*latencyScore + w.Health*healthScore
+
+		items[i] = scored{
+			target: t, costScore: costScore, latencyScore: latencyScore,
+			healthScore: healthScore, weighted: weighted,
+		}
+	}
+
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].weighted > items[j].weighted
+	})
+	return items[0].target
+}
+
+func maxFloat(vals []float64) float64 {
+	if len(vals) == 0 {
+		return 0
+	}
+	m := vals[0]
+	for _, v := range vals[1:] {
+		if v > m {
+			m = v
+		}
+	}
+	return m
+}
+
+func medianFloat(vals []float64) float64 {
+	if len(vals) == 0 {
+		return 0
+	}
+	s := make([]float64, len(vals))
+	copy(s, vals)
+	sort.Float64s(s)
+	mid := len(s) / 2
+	if len(s)%2 == 0 {
+		return (s[mid-1] + s[mid]) / 2.0
+	}
+	return s[mid]
 }
 
 // normalizeURL trims trailing slashes and lowercases a URL for consistent matching.

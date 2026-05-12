@@ -56,11 +56,12 @@ type GovernanceIdentity struct {
 // blocks a request. Callers type-assert errors to GovernanceError to extract
 // structured status codes, headers, and stage information.
 type GovernanceError struct {
-	StatusCode int               // HTTP status code (400, 403, 429)
-	Type       string            // Machine-readable error type
-	Message    string            // Human-readable error message
-	Stage      string            // Governance stage that triggered the block (e.g. "input", "output")
-	Headers    map[string]string // Response headers (Retry-After, X-RateLimit-*)
+	StatusCode      int               // HTTP status code (400, 403, 429)
+	Type            string            // Machine-readable error type
+	Message         string            // Human-readable error message
+	Stage           string            // Governance stage that triggered the block (e.g. "input", "output")
+	Headers         map[string]string // Response headers (Retry-After, X-RateLimit-*)
+	AvailableModels []string          // Model names for error enrichment (omitempty via writeGovernanceError)
 }
 
 // Error implements the error interface.
@@ -193,97 +194,24 @@ func (h *Handler) ExecuteGoverned(ctx context.Context, req openaischema.ChatComp
 	start := time.Now()
 
 	// ------ Step 1: Model validation ------
-	if identity != nil && len(identity.AllowedModels) > 0 {
-		allowed := false
-		for _, m := range identity.AllowedModels {
-			if strings.EqualFold(m, req.Model) {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
-			return nil, &GovernanceError{
-				StatusCode: 403,
-				Type:       "model_not_allowed",
-				Message:    fmt.Sprintf("model %q is not allowed for this key", req.Model),
-				Stage:      "model_validation",
-			}
-		}
+	if identity != nil && !modelAllowed(req.Model, identity.AllowedModels) {
+		return nil, buildModelNotAllowedError(req.Model, identity.AllowedModels)
 	}
 
-	// Track rate limit headers for inclusion in GovernedResult (even on success)
-	rateLimitHeaders := make(map[string]string)
-
 	// ------ Step 2: Rate limiting ------
-	if identity != nil && !identity.SkipRateLimit && identity.RPMLimit > 0 {
-		limiter := h.getLimiter(identity.VirtualKeyID, identity.RPMLimit, identity.TPMLimit)
-		allowed, limit, remaining, resetAt := limiter.CheckRPM(identity.VirtualKeyID)
-		rateLimitHeaders["X-RateLimit-Limit"] = fmt.Sprintf("%d", limit)
-		rateLimitHeaders["X-RateLimit-Remaining"] = fmt.Sprintf("%d", remaining)
-		rateLimitHeaders["X-RateLimit-Reset"] = fmt.Sprintf("%d", resetAt.Unix())
-		if !allowed {
-			h.metrics.RecordRateLimitRejection(identity.KeyPrefix, identity.ProjectID)
-			rateLimitHeaders["Retry-After"] = fmt.Sprintf("%d", int(time.Until(resetAt).Seconds())+1)
-			return nil, &GovernanceError{
-				StatusCode: 429,
-				Type:       "rate_limit_exceeded",
-				Message:    fmt.Sprintf("rate limit exceeded: %d RPM limit", identity.RPMLimit),
-				Stage:      "rate_limit",
-				Headers:    rateLimitHeaders,
-			}
-		}
+	rateLimitHeaders, err := h.checkRateLimit(identity)
+	if err != nil {
+		return nil, err
 	}
 
 	// ------ Step 3: Budget check ------
-	if identity != nil && !identity.SkipBudget && identity.BudgetLimitUSD > 0 && h.usageW != nil {
-		spent, err := usageapi.GetSpendForCurrentPeriod(ctx, h.usageW.DB(), identity.VirtualKeyID, identity.BudgetPeriod)
-		if err != nil {
-			h.logger.Warn("budget check failed, allowing request",
-				"virtual_key_id", identity.VirtualKeyID,
-				"error", err,
-			)
-		} else if spent >= identity.BudgetLimitUSD {
-			h.metrics.RecordBudgetRejection(identity.KeyPrefix, identity.ProjectID)
-			return nil, &GovernanceError{
-				StatusCode: 403,
-				Type:       "budget_exceeded",
-				Message:    fmt.Sprintf("budget exceeded: $%.2f of $%.2f", spent, identity.BudgetLimitUSD),
-				Stage:      "budget",
-			}
-		}
+	if err := h.checkBudget(ctx, identity); err != nil {
+		return nil, err
 	}
 
 	// ------ Step 4: Input guardrails ------
-	if h.shouldRunInputGuardrails(req.Model) {
-		messages := toGuardrailMessages(req.Messages)
-		result, err := h.guardrails.CheckInput(ctx, messages)
-		if err != nil {
-			h.logger.Error("guardrail input check failed", "error", err)
-			return nil, &GovernanceError{
-				StatusCode: 500,
-				Type:       "guardrail_error",
-				Message:    "guardrail check failed",
-				Stage:      "input",
-			}
-		}
-		h.metrics.RecordGuardrailDuration("pipeline", "input", time.Since(start))
-		switch result.Action {
-		case guardrails.Block:
-			h.metrics.RecordGuardrailBlock(result.StageName, "input", req.Model)
-			return nil, &GovernanceError{
-				StatusCode: 400,
-				Type:       "guardrail_block",
-				Message:    result.Message,
-				Stage:      "input",
-			}
-		case guardrails.Redact:
-			h.metrics.RecordGuardrailRedaction(result.StageName, "input", req.Model)
-			for i, gm := range result.RedactedMessages {
-				if i < len(req.Messages) {
-					req.Messages[i].Content = json.RawMessage(`"` + gm.Content + `"`)
-				}
-			}
-		}
+	if err := h.checkInputGuardrails(ctx, req); err != nil {
+		return nil, err
 	}
 
 	// ------ Step 5: Cache lookup ------
@@ -363,6 +291,12 @@ func (h *Handler) ExecuteGoverned(ctx context.Context, req openaischema.ChatComp
 		result, err := h.guardrails.CheckOutput(ctx, outputContent)
 		if err != nil {
 			h.logger.Error("guardrail output check failed", "error", err)
+			return nil, &GovernanceError{
+				StatusCode: 500,
+				Type:       "guardrail_error",
+				Message:    "guardrail check failed",
+				Stage:      "output",
+			}
 		} else {
 			h.metrics.RecordGuardrailDuration("pipeline", "output", time.Since(start))
 			switch result.Action {
@@ -377,7 +311,12 @@ func (h *Handler) ExecuteGoverned(ctx context.Context, req openaischema.ChatComp
 			case guardrails.Redact:
 				h.metrics.RecordGuardrailRedaction(result.StageName, "output", req.Model)
 				if len(resp.Choices) > 0 {
-					resp.Choices[0].Message.Content = json.RawMessage(`"` + result.Message + `"`)
+					marshaled, _ := json.Marshal(result.Message)
+				resp.Choices[0].Message.Content = json.RawMessage(marshaled)
+				}
+			default:
+				if h.metrics != nil {
+					h.metrics.RecordGuardrailPass()
 				}
 			}
 		}
@@ -451,6 +390,10 @@ func (h *Handler) ExecuteGoverned(ctx context.Context, req openaischema.ChatComp
 		}
 		meta["cost_usd"] = cost
 		meta["duration_ms"] = time.Since(start).Milliseconds()
+		if authCtx != nil {
+			meta["virtual_key_id"] = authCtx.VirtualKeyID
+			meta["project_id"] = authCtx.ProjectID
+		}
 		meta["request_messages"] = reqMessages
 
 		// Capture response content
@@ -516,6 +459,117 @@ func modelAllowed(model string, allowed []string) bool {
 		}
 	}
 	return false
+}
+
+// buildModelNotAllowedError creates a GovernanceError for a disallowed model.
+func buildModelNotAllowedError(model string, allowedModels []string) *GovernanceError {
+	return &GovernanceError{
+		StatusCode:      403,
+		Type:            "model_not_allowed",
+		Message:         fmt.Sprintf("model %q is not allowed for this key. Allowed: %v", model, allowedModels),
+		Stage:           "model_validation",
+		AvailableModels: allowedModels,
+	}
+}
+
+// checkRateLimit enforces RPM/TPM rate limiting for the given identity.
+// Returns rate-limit headers on success, or a GovernanceError if the limit is exceeded.
+func (h *Handler) checkRateLimit(identity *GovernanceIdentity) (map[string]string, error) {
+	headers := make(map[string]string)
+	if identity == nil || identity.SkipRateLimit || identity.RPMLimit <= 0 {
+		return headers, nil
+	}
+	limiter := h.getLimiter(identity.VirtualKeyID, identity.RPMLimit, identity.TPMLimit)
+	allowed, limit, remaining, resetAt := limiter.CheckRPM(identity.VirtualKeyID)
+	headers["X-RateLimit-Limit"] = fmt.Sprintf("%d", limit)
+	headers["X-RateLimit-Remaining"] = fmt.Sprintf("%d", remaining)
+	headers["X-RateLimit-Reset"] = fmt.Sprintf("%d", resetAt.Unix())
+	if !allowed {
+		h.metrics.RecordRateLimitRejection(identity.KeyPrefix, identity.ProjectID)
+		headers["Retry-After"] = fmt.Sprintf("%d", int(time.Until(resetAt).Seconds())+1)
+		return nil, &GovernanceError{
+			StatusCode: 429,
+			Type:       "rate_limit_exceeded",
+			Message:    fmt.Sprintf("rate limit exceeded: %d RPM limit", identity.RPMLimit),
+			Stage:      "rate_limit",
+			Headers:    headers,
+		}
+	}
+	return headers, nil
+}
+
+// checkBudget enforces budget limits for the given identity.
+// Returns nil on success (or when budget checking is skipped), or a GovernanceError
+// if the budget has been exceeded or (in fail-closed mode) the DB is unavailable.
+func (h *Handler) checkBudget(ctx context.Context, identity *GovernanceIdentity) error {
+	if identity == nil || identity.SkipBudget || identity.BudgetLimitUSD <= 0 || h.usageW == nil {
+		return nil
+	}
+	result, err := usageapi.CheckBudget(h.usageW.DB(), identity.VirtualKeyID, identity.BudgetPeriod, identity.BudgetLimitUSD, h.budgetFailClosed)
+	if err != nil {
+		// Fail-closed: DB error → reject
+		return &GovernanceError{
+			StatusCode: 503,
+			Type:       "budget_check_failed",
+			Message:    err.Error(),
+			Stage:      "budget",
+		}
+	}
+	if !result.Allowed {
+		h.metrics.RecordBudgetRejection(identity.KeyPrefix, identity.ProjectID)
+		return &GovernanceError{
+			StatusCode: 403,
+			Type:       "budget_exceeded",
+			Message:    fmt.Sprintf("budget exceeded: $%.2f of $%.2f", result.Spend, identity.BudgetLimitUSD),
+			Stage:      "budget",
+		}
+	}
+	return nil
+}
+
+// checkInputGuardrails runs input guardrail checks on the request messages.
+// Returns nil on success (or when guardrails are not configured for the model),
+// or a GovernanceError if the guardrail blocks or errors.
+func (h *Handler) checkInputGuardrails(ctx context.Context, req openaischema.ChatCompletionRequest) error {
+	if !h.shouldRunInputGuardrails(req.Model) {
+		return nil
+	}
+	start := time.Now()
+	messages := toGuardrailMessages(req.Messages)
+	result, err := h.guardrails.CheckInput(ctx, messages)
+	if err != nil {
+		h.logger.Error("guardrail input check failed", "error", err)
+		return &GovernanceError{
+			StatusCode: 500,
+			Type:       "guardrail_error",
+			Message:    "guardrail check failed",
+			Stage:      "input",
+		}
+	}
+	h.metrics.RecordGuardrailDuration("pipeline", "input", time.Since(start))
+	switch result.Action {
+	case guardrails.Block:
+		h.metrics.RecordGuardrailBlock(result.StageName, "input", req.Model)
+		return &GovernanceError{
+			StatusCode: 400,
+			Type:       "guardrail_block",
+			Message:    result.Message,
+			Stage:      "input",
+		}
+	case guardrails.Redact:
+		h.metrics.RecordGuardrailRedaction(result.StageName, "input", req.Model)
+		for i, gm := range result.RedactedMessages {
+			if i < len(req.Messages) {
+				marshaled, _ := json.Marshal(gm.Content)
+			req.Messages[i].Content = json.RawMessage(marshaled)
+			}
+		}
+	default:
+		if h.metrics != nil {
+			h.metrics.RecordGuardrailPass()
+		}
+	}
+	return nil
 }
 
 // isGovernanceError checks if an error is a GovernanceError.
@@ -598,97 +652,26 @@ var _ error = (*GovernanceError)(nil)
 // If identity is nil (A2A path), all identity-based checks are skipped but
 // guardrails are still enforced (when configured).
 func (h *Handler) preStreamGovernance(ctx context.Context, req openaischema.ChatCompletionRequest, identity *GovernanceIdentity) (map[string]string, error) {
-	rateLimitHeaders := make(map[string]string)
 
 	// ------ Step 1: Model validation ------
-	if identity != nil && len(identity.AllowedModels) > 0 {
-		allowed := false
-		for _, m := range identity.AllowedModels {
-			if strings.EqualFold(m, req.Model) {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
-			return nil, &GovernanceError{
-				StatusCode: 403,
-				Type:       "model_not_allowed",
-				Message:    fmt.Sprintf("model %q is not allowed for this key", req.Model),
-				Stage:      "model_validation",
-			}
-		}
+	if identity != nil && !modelAllowed(req.Model, identity.AllowedModels) {
+		return nil, buildModelNotAllowedError(req.Model, identity.AllowedModels)
 	}
 
 	// ------ Step 2: Rate limiting ------
-	if identity != nil && !identity.SkipRateLimit && identity.RPMLimit > 0 {
-		limiter := h.getLimiter(identity.VirtualKeyID, identity.RPMLimit, identity.TPMLimit)
-		allowed, limit, remaining, resetAt := limiter.CheckRPM(identity.VirtualKeyID)
-		rateLimitHeaders["X-RateLimit-Limit"] = fmt.Sprintf("%d", limit)
-		rateLimitHeaders["X-RateLimit-Remaining"] = fmt.Sprintf("%d", remaining)
-		rateLimitHeaders["X-RateLimit-Reset"] = fmt.Sprintf("%d", resetAt.Unix())
-		if !allowed {
-			h.metrics.RecordRateLimitRejection(identity.KeyPrefix, identity.ProjectID)
-			rateLimitHeaders["Retry-After"] = fmt.Sprintf("%d", int(time.Until(resetAt).Seconds())+1)
-			return nil, &GovernanceError{
-				StatusCode: 429,
-				Type:       "rate_limit_exceeded",
-				Message:    fmt.Sprintf("rate limit exceeded: %d RPM limit", identity.RPMLimit),
-				Stage:      "rate_limit",
-				Headers:    rateLimitHeaders,
-			}
-		}
+	rateLimitHeaders, err := h.checkRateLimit(identity)
+	if err != nil {
+		return nil, err
 	}
 
 	// ------ Step 3: Budget check ------
-	if identity != nil && !identity.SkipBudget && identity.BudgetLimitUSD > 0 && h.usageW != nil {
-		spent, err := usageapi.GetSpendForCurrentPeriod(ctx, h.usageW.DB(), identity.VirtualKeyID, identity.BudgetPeriod)
-		if err != nil {
-			h.logger.Warn("budget check failed, allowing request",
-				"virtual_key_id", identity.VirtualKeyID,
-				"error", err,
-			)
-		} else if spent >= identity.BudgetLimitUSD {
-			h.metrics.RecordBudgetRejection(identity.KeyPrefix, identity.ProjectID)
-			return nil, &GovernanceError{
-				StatusCode: 403,
-				Type:       "budget_exceeded",
-				Message:    fmt.Sprintf("budget exceeded: $%.2f of $%.2f", spent, identity.BudgetLimitUSD),
-				Stage:      "budget",
-			}
-		}
+	if err := h.checkBudget(ctx, identity); err != nil {
+		return nil, err
 	}
 
 	// ------ Step 4: Input guardrails ------
-	if h.shouldRunInputGuardrails(req.Model) {
-		messages := toGuardrailMessages(req.Messages)
-		result, err := h.guardrails.CheckInput(ctx, messages)
-		if err != nil {
-			h.logger.Error("guardrail input check failed", "error", err)
-			return nil, &GovernanceError{
-				StatusCode: 500,
-				Type:       "guardrail_error",
-				Message:    "guardrail check failed",
-				Stage:      "input",
-			}
-		}
-		h.metrics.RecordGuardrailDuration("pipeline", "input", time.Since(time.Now()))
-		switch result.Action {
-		case guardrails.Block:
-			h.metrics.RecordGuardrailBlock(result.StageName, "input", req.Model)
-			return nil, &GovernanceError{
-				StatusCode: 400,
-				Type:       "guardrail_block",
-				Message:    result.Message,
-				Stage:      "input",
-			}
-		case guardrails.Redact:
-			h.metrics.RecordGuardrailRedaction(result.StageName, "input", req.Model)
-			for i, gm := range result.RedactedMessages {
-				if i < len(req.Messages) {
-					req.Messages[i].Content = json.RawMessage(`"` + gm.Content + `"`)
-				}
-			}
-		}
+	if err := h.checkInputGuardrails(ctx, req); err != nil {
+		return nil, err
 	}
 
 	return rateLimitHeaders, nil
@@ -698,10 +681,44 @@ func (h *Handler) preStreamGovernance(ctx context.Context, req openaischema.Chat
 // Post-stream finalization (steps 10-11)
 // ---------------------------------------------------------------------------
 
-// postStreamGovernance runs governance steps 10-11 (usage logging and metrics)
+// postStreamGovernance runs governance steps 9b-11 (audit, usage logging, metrics)
 // after a streaming request completes successfully. It is a no-op when identity
 // is nil or SkipUsageLog is true.
 func (h *Handler) postStreamGovernance(r *http.Request, req openaischema.ChatCompletionRequest, target providers.Target, attempts int, promptTokens int, completionTokens int, identity *GovernanceIdentity, durationMS int64) {
+	// ------ Step 9b: Audit logging (BATCH-31 TD-05) ------
+	if h.auditLog != nil {
+		authCtx := auth.FromContext(r.Context())
+		actor := "anonymous"
+		if authCtx != nil && authCtx.VirtualKeyID != "" {
+			actor = "key:" + authCtx.VirtualKeyID
+		}
+		resource := "model:" + req.Model
+		meta := map[string]any{
+			"provider":        target.Provider,
+			"provider_model":  target.Model,
+			"stream":          true,
+			"prompt_tokens":   promptTokens,
+			"completion_tokens": completionTokens,
+			"attempts":        attempts,
+			"duration_ms":     durationMS,
+		}
+		if identity != nil {
+			meta["virtual_key_id"] = identity.VirtualKeyID
+			if identity.ProjectID != "" {
+				meta["project_id"] = identity.ProjectID
+			}
+		}
+
+		h.auditLog.Record(audit.Event{
+			EventType: audit.EventChatCompletion,
+			Actor:     actor,
+			Action:    "stream",
+			Resource:  resource,
+			Outcome:   "success",
+			RequestID: requestid.FromContext(r.Context()),
+			Metadata:  meta,
+		})
+	}
 	// ------ Step 10: Usage logging ------
 	if identity != nil && !identity.SkipUsageLog && h.usageW != nil {
 		totalTokens := promptTokens + completionTokens
@@ -757,6 +774,23 @@ func (h *Handler) SetAuditLogger(l *audit.Logger) {
 // SetLogBodies enables or disables request/response body capture.
 func (h *Handler) SetLogBodies(enabled bool) {
 	h.logBodies = enabled
+}
+
+// SetReplayManager sets the replay manager for shadow request replay (BATCH-55).
+func (h *Handler) SetReplayManager(mgr interface {
+	Replay(openaischema.ChatCompletionRequest, string, time.Duration)
+}) {
+	h.replayMgr = mgr
+}
+
+// ExecuteForReplay executes a direct provider call for shadow replay.
+// Bypasses governance (rate limit, budget, usage logging) to avoid double-counting.
+func (h *Handler) ExecuteForReplay(ctx context.Context, req openaischema.ChatCompletionRequest, target providers.Target, key providers.ProviderKey) (*openaischema.ChatCompletionResponse, error) {
+	adapter, ok := h.adapters[target.Provider]
+	if !ok {
+		return nil, fmt.Errorf("provider adapter not found: %s", target.Provider)
+	}
+	return adapter.CompleteChat(ctx, req, target, key)
 }
 
 // Ensure unused-import guard for slog — used in ExecuteGoverned logging.
