@@ -5,7 +5,54 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.4.0] - 2026-05-12
+## [1.4.1] - 2026-05-13
+
+### Fixed — Critical Security (BATCH-57)
+- **JSON injection in guardrail redaction**: Replace string concat into `json.RawMessage` with `json.Marshal()`
+- **Double mutex unlock in MCP tryReconnect**: Remove defer, keep explicit unlock per code path
+- **Expired key auth bypass**: Add `expires_at` filter to SQL queries in `LookupVirtualKeyByToken` and `ListVirtualKeysForMCP`
+- **readJSON body-close race**: Always return 400 on JSON decode error, no fallback body read
+- **Nil LatencyCache for smart routing**: Create LatencyCache when strategy is "smart" or "latency"
+
+### Fixed — Concurrency (BATCH-58)
+- **OnKeysChanged panic guard**: Wrap all 5 goroutine launches with `defer recover()` + error logging
+- **Atomic Redis breaker**: HINCRBY replaces read-modify-write for failure counter
+- **MCP goroutine leak**: `cancelNotif` field cancels old listener before new one on reconnect
+- **KeyCache LRU eviction**: `lastAccess` time tracking replaces random map eviction
+
+### Fixed — Resource Management (BATCH-59)
+- **Admin body limits**: 64KB body size limit for `/admin/*` routes
+- **Context-aware backoff**: `select` on `time.After` + `ctx.Done` replaces `time.Sleep`
+- **Default per-call timeout**: 30s when `TimeoutMS` is 0
+- **Usage drop metric**: `RecordUsageDrop()` + `SetDropRecorder()` for buffer-full observability
+- **Replay ring buffer**: O(1) ring buffer replaces O(n) slice shift
+
+### Fixed — Streaming + Routing (BATCH-60)
+- **Streaming output guardrails**: `CheckOutput` on accumulated content before `[DONE]`; Block → SSE error
+- **Smart routing integration**: Verified different scores per target, cost-only fallback, health deprioritization
+- **Breaker map LRU eviction**: `breakerEntry` wrapper with `lastAccess` for deterministic eviction
+
+### Fixed — Data Integrity (BATCH-61)
+- **SQL pagination**: `LIMIT`/`OFFSET` in SQL + `CountVirtualKeys` for `X-Total-Count`
+- **Budget context propagation**: `CheckBudget` accepts `context.Context`, no more `nil`
+- **Array parsing**: Quoted comma handling in `parseArrayString`; escaping in `arrayString`
+- **Quickstart duplicate guard**: Reuse existing project on duplicate creation
+
+### Changed — UX (BATCH-62, BATCH-63)
+- **Inline login form**: Replaces `prompt()` auth wall with styled password input
+- **5-tab dashboard**: 8→5 tabs (Overview, Keys, Usage, Guardrails, MCP)
+- **Guardrail catalog prefill**: Click-to-test workflow
+- **ARIA landmarks + focus management**: Full accessibility compliance
+- **Init wizard docs**: "Quick Setup" section with `openlimit init`
+- **Mobile responsive**: CSS breakpoints at 768px and 1024px
+- **Colorblind spend bars**: Stripe patterns + safe/warning/danger classes
+
+### Tests
+- **+74 new tests** across 7 batches (BATCH-57→63)
+- **733 passing**, 8 pre-existing OBL-05 failures deferred
+- Zero regressions
+
+
 
 ### Added
 - **Provider Registry** (BATCH-42): 21 new providers registered (30+ total), zero new adapter code

@@ -1,7 +1,7 @@
 # CODEBASE STATE
 
-Last Updated:       2026-05-12
-Updated By:         Craft Agent (Lead) — via BATCH-56 Close
+Last Updated:       2026-05-13
+Updated By:         Craft Agent (Lead) — via BATCH-64 / v1.4.1 GA
 Framework Version:  5.3
 
 ───────────────────────────────────────────────────────────
@@ -18,8 +18,10 @@ Every entry here was confirmed by an Adaptation or manual audit.
 
   Module:              internal/api/openai
   Actual exports:      Handler, ChatCompletions, ExecuteGoverned
-  Verified in:        BATCH-21 → 56
+  Verified in:        BATCH-21 → 63
   Notes:               Unified governance pipeline for all entry points. Streaming and non-streaming paths.
+                     Streaming output guardrails (CheckOutput) on accumulated content before [DONE].
+                     Breaker map uses breakerEntry wrapper with LRU eviction.
 
   Module:              internal/audit
   Actual exports:      Logger, Event
@@ -63,13 +65,15 @@ Every entry here was confirmed by an Adaptation or manual audit.
 
   Module:              internal/mcp
   Actual exports:      Client, Registry, Manager, ServerHandler, Executor, A2AHandler
-  Verified in:        BATCH-24 → 53
+  Verified in:        BATCH-24 → 58
   Notes:               MCP client/server, tool merge, executor, A2A with Redis bridge. Per-state mutex for reconnect safety.
+                     cancelNotif field cancels old notification listener goroutine on reconnect.
 
   Module:              internal/metrics
   Actual exports:      Collector, GuardrailStatsSnapshot
-  Verified in:        BATCH-21 → 50
-  Notes:               30+ Prometheus metrics. GuardrailStatsSnapshot for in-memory counters (no Prometheus dependency).
+  Verified in:        BATCH-21 → 63
+  Notes:               30+ Prometheus metrics. GuardrailStatsSnapshot for in-memory counters.
+                     RecordUsageDrop() for buffer-full observability. atomic.Int64 counters.
 
   Module:              internal/oidc
   Actual exports:      Provider, UserLookupFunc
@@ -108,18 +112,21 @@ Every entry here was confirmed by an Adaptation or manual audit.
 
   Module:              internal/store
   Actual exports:      Store, Keys, Projects, RBAC
-  Verified in:        BATCH-21 → 39
+  Verified in:        BATCH-21 → 61
   Notes:               Postgres data access. SQL field validation. Prefix-filtered key lookup. ListVirtualKeysForMCP.
+                     SQL LIMIT/OFFSET pagination. CountVirtualKeys for X-Total-Count.
+                     parseArrayString handles PostgreSQL quoted elements. GetProjectByName for quickstart guard.
 
   Module:              internal/usage
   Actual exports:      Writer, Budget
-  Verified in:        BATCH-21 → 39
-  Notes:               Async buffered writer with drain-on-close. CheckBudget helper for consolidated budget enforcement.
+  Verified in:        BATCH-21 → 61
+  Notes:               Async buffered writer with drain-on-close. CheckBudget helper with context propagation.
+                     SetDropRecorder for buffer-full drop metric. GetSpendForCurrentPeriod always receives non-nil context.
 
   Module:              pkg/version
   Actual exports:      var Version string
-  Verified in:        BATCH-56
-  Notes:               Single string variable, bumped per release.
+  Verified in:        BATCH-56 → 64
+  Notes:               Single string variable, bumped per release. Currently v1.4.1.
 
   Module:              sdks/typescript
   Actual exports:      OpenLimitClient (client), OpenLimitAdmin (admin)
@@ -210,10 +217,20 @@ KNOWN GOTCHAS
   Discovered:  BATCH-21
   Status:      MITIGATED — nil-guard added, test added
 
-  GOTCHA-003: Admin endpoints /admin/prompts and /admin/audit are registered
-              in RegisterRoutes but NOT included in SDK admin clients.
-  Discovered:  BATCH-22
-  Status:      DOCUMENTED — acknowledged as future work
+  GOTCHA-004: manager_test.go requires slog.Default() not nil for NewManager.
+              Passing nil logger causes go vet / test failures.
+  Discovered:  BATCH-58
+  Status:      MITIGATED — all tests use slog.Default()
+
+  GOTCHA-005: CheckBudget signature changed in BATCH-61 — now takes context.Context as first param.
+              All callers must pass r.Context(). Old signature without ctx will not compile.
+  Discovered:  BATCH-61
+  Status:      DOCUMENTED — all callers updated
+
+  GOTCHA-006: STATE.md test counts are authoritative only from BATCH-64 onward.
+              Prior counts (700) were stale due to accumulation across batches without STATE.md updates.
+  Discovered:  BATCH-57→63
+  Status:      FIXED — STATE.md now reads 741 (733 pass + 8 OBL-05)
 
 ───────────────────────────────────────────────────────────
 ADAPTATION LOG (ROLLING — LAST 10 BATCHES)
@@ -226,17 +243,22 @@ ADAPTATION LOG (ROLLING — LAST 10 BATCHES)
   BATCH-22: Blueprint said "8 admin methods", actual is 11. Resolution: Lead Response corrected count.
   BATCH-39: Reviewer CHK-20 flagged a2a_push_test.go already exists (4 tests). Resolution: Changed to (modify).
   BATCH-39: Test delta stated +18 in Blueprint v1.0, actual is +22 (arithmetic error). Resolution: Corrected in Blueprint v1.1.
-  BATCH-42→55: 14 consecutive batches with zero architecture-level adaptations needed.
+  BATCH-42→63: 22 consecutive batches with zero architecture-level adaptations needed.
                 All code matched blueprint expectations after BATCH-21→39 lessons learned.
+  BATCH-57: governed_test.go was "(new file)" in Blueprint but already existed (1207 lines). Fixed to (modify).
+  BATCH-58: manager_test.go needs slog.Default() not nil for NewManager (caught by go vet).
+  BATCH-59: sec03_test.go created for white-box admin body limit tests (separate from server_test.go).
+  BATCH-60: breakerEntry wrapper struct added to chat_completions.go for LRU eviction.
 
 ───────────────────────────────────────────────────────────
 TEST BASELINE
 ───────────────────────────────────────────────────────────
 
-  Last verified count: 700 Go tests (551 baseline + 149 new across BATCH-42→55)
-  Verified in:         BATCH-56 / 2026-05-12
+  Last verified count: 741 Go tests (677 pre-v1.4.1 + 64 new across BATCH-57→63)
+  Verified in:         BATCH-64 / 2026-05-13
   Breakdown:
-    Go unit:           700 tests across 40+ packages
+    Go passing:        733 tests across 40+ packages
+    Go failing:        8 server integration tests (OBL-05 port binding — deferred)
     TS SDK:            24 unit tests (10 client + 11 admin + 3 admin extended)
     Python SDK:        22 unit tests (9 client + 13 admin)
 
