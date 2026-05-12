@@ -1210,6 +1210,137 @@ func TestGovernanceStepOrdering(t *testing.T) {
 // BATCH-57 / TASK-01: JSON injection fix regression tests
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// BATCH-59 / TASK-01: Context-aware backoff test
+// ---------------------------------------------------------------------------
+
+// TEST-59-01-03: Context-aware backoff exits immediately when context is already cancelled.
+func TestExecuteGoverned_ContextAwareBackoff(t *testing.T) {
+	// Create a provider that always fails with a retryable error so backoff is triggered.
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": "server error"}})
+	}))
+	defer srv.Close()
+
+	h := testHandler(t, srv.URL)
+
+	// Configure 3 retries with significant backoff
+	h.cfg.Routing.Defaults.Retry.Attempts = 3
+	h.cfg.Routing.Defaults.Retry.InitialMS = 2000
+	h.cfg.Routing.Defaults.Retry.MaxMS = 10000
+
+	identity := &GovernanceIdentity{
+		ProjectID:    "proj-backoff",
+		VirtualKeyID: "vk-backoff",
+		KeyPrefix:    "sk-test",
+		Name:         "backoff-test",
+		SkipRateLimit: true,
+		Source:       "virtual_key",
+	}
+
+	req := openaischema.ChatCompletionRequest{
+		Model:    "fast",
+		Messages: []openaischema.ChatMessage{{Role: "user", Content: json.RawMessage(`"hello"`)}},
+	}
+
+	// Pre-cancel the context before calling
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+
+	start := time.Now()
+	_, err := h.ExecuteGoverned(ctx, req, identity)
+	elapsed := time.Since(start)
+
+	// The backoff should NOT wait — it should exit immediately due to ctx.Done()
+	if elapsed > 500*time.Millisecond {
+		t.Errorf("backoff took %v with cancelled context, expected < 500ms", elapsed)
+	}
+
+	// Should return context.Canceled error
+	if err == nil {
+		t.Fatal("expected error with cancelled context, got nil")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// BATCH-59 / TASK-02: Default per-call timeout tests
+// ---------------------------------------------------------------------------
+
+// TEST-59-02-01: TimeoutMS=0 produces a 30s context deadline.
+func TestDefaultTimeout_WhenTimeoutMSZero(t *testing.T) {
+	srv, _ := mockProviderServer(t)
+	defer srv.Close()
+
+	h := testHandler(t, srv.URL)
+	h.cfg.Routing.Defaults.TimeoutMS = 0 // unset — should default to 30s
+
+	identity := &GovernanceIdentity{
+		ProjectID:     "proj-timeout-default",
+		VirtualKeyID:  "vk-timeout-default",
+		KeyPrefix:     "sk-test",
+		Name:          "timeout-default",
+		SkipRateLimit: true,
+		Source:        "virtual_key",
+	}
+
+	req := openaischema.ChatCompletionRequest{
+		Model:    "fast",
+		Messages: []openaischema.ChatMessage{{Role: "user", Content: json.RawMessage(`"hello"`)}},
+	}
+
+	// With TimeoutMS=0, the handler should apply a 30s default and succeed
+	result, err := h.ExecuteGoverned(context.Background(), req, identity)
+	if err != nil {
+		t.Fatalf("expected success with default 30s timeout, got error: %v", err)
+	}
+	if result == nil || result.Response == nil {
+		t.Fatal("expected non-nil result")
+	}
+}
+
+// TEST-59-02-04: TimeoutMS>0 takes precedence over default 30s.
+func TestDefaultTimeout_TimeoutMSPrecedence(t *testing.T) {
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond) // delay longer than timeout
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer provider.Close()
+
+	h := testHandler(t, provider.URL)
+	h.cfg.Routing.Defaults.TimeoutMS = 50 // 50ms — much shorter than 30s default
+	h.cfg.Routing.Defaults.Retry.Attempts = 1
+
+	identity := &GovernanceIdentity{
+		ProjectID:     "proj-timeout-prec",
+		VirtualKeyID:  "vk-timeout-prec",
+		KeyPrefix:     "sk-test",
+		Name:          "timeout-prec",
+		SkipRateLimit: true,
+		Source:        "virtual_key",
+	}
+
+	req := openaischema.ChatCompletionRequest{
+		Model:    "fast",
+		Messages: []openaischema.ChatMessage{{Role: "user", Content: json.RawMessage(`"hello"`)}},
+	}
+
+	start := time.Now()
+	_, err := h.ExecuteGoverned(context.Background(), req, identity)
+	elapsed := time.Since(start)
+
+	// Should timeout quickly (around 50ms) — not wait 30s
+	if elapsed > 5*time.Second {
+		t.Errorf("request took %v with TimeoutMS=50, expected < 5s", elapsed)
+	}
+	if err == nil {
+		t.Error("expected timeout error, got nil")
+	}
+}
+
 // TEST-57-01-01: Output redaction produces valid JSON when content contains double quotes.
 func TestGuardrailRedaction_OutputDoubleQuotes(t *testing.T) {
 	content := `He said "hello world" and left`

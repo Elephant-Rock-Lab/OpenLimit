@@ -2,10 +2,12 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"database/sql"
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"openlimit/internal/admin"
@@ -23,6 +25,7 @@ import (
 	"openlimit/internal/metrics"
 	oidcPkg "openlimit/internal/oidc"
 	"openlimit/internal/providers"
+	"openlimit/internal/replay"
 	anthropicadapter "openlimit/internal/providers/anthropic"
 	azureadapter "openlimit/internal/providers/azure"
 	bedrockadapter "openlimit/internal/providers/bedrock"
@@ -35,10 +38,12 @@ import (
 	rediscli "openlimit/internal/redis"
 	"openlimit/internal/routing"
 	openaischema "openlimit/internal/schema/openai"
+	"openlimit/internal/store"
 	"openlimit/internal/tracing"
 	"openlimit/internal/usage"
 )
 
+// Runtime holds the server and its runtime components.
 type Runtime struct {
 	Server           *http.Server
 	Tracker          *lifecycle.Tracker
@@ -46,6 +51,19 @@ type Runtime struct {
 	Tracer           *tracing.Tracer
 	MCPManager       *mcp.Manager
 	A2AHandler       *mcp.A2AHandler
+	ReplayManager    *replay.Manager // BATCH-55: for graceful shutdown
+	handler          *openaiapi.Handler
+}
+
+// CloseHandlers closes background goroutines in the API handler and replay manager.
+// Must be called during server shutdown to prevent goroutine leaks.
+func (r *Runtime) CloseHandlers() {
+	if r.handler != nil {
+		r.handler.Close()
+	}
+	if r.ReplayManager != nil {
+		r.ReplayManager.Close()
+	}
 }
 
 func New(cfg config.Config, logger *slog.Logger, db *sql.DB) *http.Server {
@@ -167,6 +185,7 @@ func NewRuntime(cfg config.Config, logger *slog.Logger, db *sql.DB) *Runtime {
 
 	// Admin API (only when admin is enabled and database is available)
 	var auditLog *audit.Logger
+	var replayMgr *replay.Manager // BATCH-55: declared early for admin wiring scope
 	if cfg.Admin.Enabled && db != nil {
 		auditLog = audit.NewLogger(db, logger, 1000)
 	}
@@ -231,6 +250,66 @@ func NewRuntime(cfg config.Config, logger *slog.Logger, db *sql.DB) *Runtime {
 				return result
 			}
 			adminRoutes.HandleFunc("GET /admin/tools", admin.ToolsHandler(statusFn))
+
+			// MCP servers dashboard endpoint (BATCH-53)
+			mcpServersFn := func() []admin.MCPServerEntry {
+				statuses := mcpManager.ServerStatus()
+				result := make([]admin.MCPServerEntry, len(statuses))
+				for i, s := range statuses {
+					tools := mcpRegistry.ToolsByServer(s.Name)
+					toolNames := make([]string, 0, len(tools))
+					for _, t := range tools {
+						toolNames = append(toolNames, t.Name)
+					}
+					if len(toolNames) > 50 {
+						toolNames = toolNames[:50] // AR-04: cap at 50
+					}
+					result[i] = admin.MCPServerEntry{
+						Name:      s.Name,
+						Status:    s.Status,
+						Tools:     s.Tools,
+						ToolList:  toolNames,
+						LastError: s.LastError,
+					}
+				}
+				return result
+			}
+			adminRoutes.HandleFunc("GET /admin/mcp/servers", admin.MCPServersHandler(mcpServersFn))
+		}
+
+		// Smart routing cost catalog endpoint (BATCH-54)
+		routingCostFn := func() admin.RoutingCostsResponse {
+			entries := make([]admin.CostEntryJSON, len(routing.CostCatalog))
+			for i, e := range routing.CostCatalog {
+				entries[i] = admin.CostEntryJSON{
+					Provider:   e.Provider,
+					Model:      e.Model,
+					InputPer1M: e.InputPer1M,
+					OutputPer1M: e.OutputPer1M,
+				}
+			}
+			strategy := cfg.Routing.RegionStrategy
+			if strategy == "" {
+				strategy = "priority"
+			}
+			return admin.RoutingCostsResponse{
+				Models:   entries,
+				Strategy: strategy,
+				Weights: admin.CostWeightsJSON{
+					Cost:    cfg.Routing.CostWeights.Cost,
+					Latency: cfg.Routing.CostWeights.Latency,
+					Health:  cfg.Routing.CostWeights.Health,
+				},
+			}
+		}
+		adminRoutes.HandleFunc("GET /admin/routing/costs", admin.RoutingCostsHandler(routingCostFn))
+
+		// Replay results endpoint (BATCH-55)
+		if replayMgr != nil {
+			replayFn := func() replay.ReplaySummary {
+				return replayMgr.Summary(100)
+			}
+			adminRoutes.HandleFunc("GET /admin/routing/replay", admin.ReplayHandler(replayFn))
 		}
 
 		// MCP server tools admin endpoint
@@ -263,7 +342,10 @@ func NewRuntime(cfg config.Config, logger *slog.Logger, db *sql.DB) *Runtime {
 		adminRoutes.HandleFunc("GET /admin/health/providers", health.AdminProviderHealth(healthTracker))
 		adminRoutes.HandleFunc("GET /admin/health/models", health.AdminModelHealth(healthTracker))
 
-		mux.Handle("/admin/", admin.BearerAuth(cfg.Admin.BearerToken, auditLog, oidcProvider, oidcLookup, adminRoutes))
+		// Wrap admin routes with 64KB body limit INSIDE BearerAuth so the limit
+		// applies to all /admin/* routes independently of the API body limit.
+		adminWithBodyLimit := maxBodySizeMiddleware(65536)(adminRoutes)
+		mux.Handle("/admin/", admin.BearerAuth(cfg.Admin.BearerToken, auditLog, oidcProvider, oidcLookup, adminWithBodyLimit))
 	}
 
 	// Billing: price table and async usage writer
@@ -287,6 +369,29 @@ func NewRuntime(cfg config.Config, logger *slog.Logger, db *sql.DB) *Runtime {
 
 	// Wire health tracker into handler (same instance as router — AUTH-05).
 	openAIHandler.SetHealthTracker(healthTracker)
+
+	// Replay manager (BATCH-55): shadow request replay for provider comparison.
+	if cfg.Replay.Enabled {
+		replayMgr = replay.NewManager(cfg.Replay,
+			openAIHandler.ExecuteForReplay,
+			func(providerName string) (providers.ProviderKey, error) {
+				kr := keys[providerName]
+				if kr == nil {
+					return providers.ProviderKey{}, fmt.Errorf("no keys for %s", providerName)
+				}
+				key, ok := kr.Next()
+				if !ok {
+					return providers.ProviderKey{}, fmt.Errorf("no active keys for %s", providerName)
+				}
+				return key, nil
+			},
+			logger,
+		)
+		if replayMgr != nil {
+			openAIHandler.SetReplayManager(replayMgr)
+			logger.Info("replay manager enabled", "routes", len(cfg.Replay.Routes))
+		}
+	}
 	if auditLog != nil && cfg.Logging.LogBodies {
 		openAIHandler.SetAuditLogger(auditLog)
 		openAIHandler.SetLogBodies(true)
@@ -333,6 +438,11 @@ func NewRuntime(cfg config.Config, logger *slog.Logger, db *sql.DB) *Runtime {
 			// Wire metrics
 			a2aHandler.SetMetricsRecorder(metricsCollector)
 
+			// Wire virtual key resolver for virtual_key authentication mode
+			if db != nil {
+				a2aHandler.SetKeyResolver(newCachedKeyResolver(db, 60*time.Second))
+			}
+
 			// Agent card is always on the main server
 			mux.Handle("/.well-known/agent.json", a2aHandler)
 
@@ -365,12 +475,14 @@ func NewRuntime(cfg config.Config, logger *slog.Logger, db *sql.DB) *Runtime {
 
 	// Auth middleware wraps the API endpoints (pass-through when disabled)
 	authMW := auth.NewMiddleware(cfg.Auth, db)
+	authMW.SetBudgetFailClosed(cfg.Billing.FailClosed)
 	protectedAPI := authMW.Wrap(apiMux)
 
 	// Route /v1/ to protected handler
 	mux.Handle("/v1/", protectedAPI)
 
-	handler := trackingMiddleware(tracker, metricsCollector, requestIDMiddleware(loggingMiddleware(logger, tracer.HTTPMiddleware(mux))))
+	maxBodyBytes := int64(cfg.Server.MaxBodySizeKB) * 1024
+	handler := maxBodySizeMiddleware(maxBodyBytes)(trackingMiddleware(tracker, metricsCollector, requestIDMiddleware(loggingMiddleware(logger, tracer.HTTPMiddleware(mux)))))
 
 	return &Runtime{
 		Server: &http.Server{
@@ -385,6 +497,8 @@ func NewRuntime(cfg config.Config, logger *slog.Logger, db *sql.DB) *Runtime {
 		Tracer:           tracer,
 		MCPManager:       mcpManager,
 		A2AHandler:       a2aHandlerPtr,
+		ReplayManager:    replayMgr,
+		handler:          openAIHandler,
 	}
 }
 
@@ -416,8 +530,35 @@ func buildAdapters(cfg config.Config, logger *slog.Logger, kmsFetcher kms.KeyFet
 	adapters := map[string]providers.Adapter{}
 	keys := map[string]*providers.KeyRing{}
 	for name, providerCfg := range cfg.Providers {
+		// Resolve provider type from registry if not explicitly set.
+		// User-provided config takes precedence (AR-01).
+		if providerCfg.Type == "" {
+			if def, ok := providers.LookupDefault(name); ok {
+				providerCfg.Type = def.BaseType
+			}
+			if providerCfg.Type == "" {
+				providerCfg.Type = "openai-compatible"
+			}
+		}
+
+		// Fill base_url from registry if not explicitly set.
+		if providerCfg.BaseURL == "" {
+			if def, ok := providers.LookupDefault(name); ok {
+				providerCfg.BaseURL = def.BaseURL
+			}
+		}
+
+		// Validate provider config (soft — logs warning, doesn't prevent startup)
+		if err := providers.ValidateProvider(name, providerCfg.Type, providerCfg.BaseURL); err != nil {
+			logger.Warn("provider config invalid, skipping",
+				"provider", name,
+				"error", err,
+			)
+			continue
+		}
+
 		switch providerCfg.Type {
-		case "openai", "openai-compatible", "":
+		case "openai", "openai-compatible":
 			adapters[name] = openaiadapter.New(name, providerCfg.BaseURL)
 		case "anthropic":
 			adapters[name] = anthropicadapter.New(name, providerCfg.BaseURL)
@@ -466,10 +607,17 @@ func buildA2AExecutor(cfg config.Config, handler *openaiapi.Handler, logger *slo
 			}
 		}
 
+		// Extract governance identity from args (injected by A2A handler)
+		var identity any
+		if raw, ok := args["_governance_identity"]; ok {
+			identity = raw
+			delete(args, "_governance_identity")
+		}
+
 		resp, err := handler.ExecuteForMCP(ctx, openaischema.ChatCompletionRequest{
 			Model:    model,
 			Messages: messages,
-		}, nil)
+		}, identity)
 		if err != nil {
 			return nil, err
 		}
@@ -575,4 +723,81 @@ func buildA2AStore(cfg config.Config, db *sql.DB, logger *slog.Logger) mcp.TaskS
 	}
 	logger.Info("A2A task store: in-memory (tasks lost on restart)")
 	return mcp.NewMemoryTaskStore(maxTasks, time.Duration(ttlSec)*time.Second)
+}
+
+// cachedKeyResolver wraps a dbKeyResolver with a TTL-based cache to avoid
+// O(N) bcrypt lookups on every A2A request.
+type cachedKeyResolver struct {
+	resolver *dbKeyResolver
+	cache    map[string]cacheEntry
+	mu       sync.RWMutex
+	ttl      time.Duration
+}
+
+type cacheEntry struct {
+	identity *mcp.MCPIdentity
+	expires  time.Time
+}
+
+func newCachedKeyResolver(db *sql.DB, ttl time.Duration) *cachedKeyResolver {
+	return &cachedKeyResolver{
+		resolver: &dbKeyResolver{db: db},
+		cache:    make(map[string]cacheEntry),
+		ttl:      ttl,
+	}
+}
+
+func (c *cachedKeyResolver) ResolveVirtualKey(ctx context.Context, token string) (mcp.IdentityProvider, error) {
+	// Check cache
+	c.mu.RLock()
+	if entry, ok := c.cache[token]; ok && time.Now().Before(entry.expires) {
+		c.mu.RUnlock()
+		return entry.identity, nil
+	}
+	c.mu.RUnlock()
+
+	// Cache miss — resolve via DB
+	idp, err := c.resolver.ResolveVirtualKey(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+
+	// Store in cache
+	mcpID := idp.(*mcp.MCPIdentity)
+	c.mu.Lock()
+	c.cache[token] = cacheEntry{identity: mcpID, expires: time.Now().Add(c.ttl)}
+	// Evict expired entries periodically
+	for k, v := range c.cache {
+		if time.Now().After(v.expires) {
+			delete(c.cache, k)
+		}
+	}
+	c.mu.Unlock()
+
+	return mcpID, nil
+}
+
+// dbKeyResolver resolves virtual keys via database lookup.
+type dbKeyResolver struct {
+	db *sql.DB
+}
+
+func (r *dbKeyResolver) ResolveVirtualKey(ctx context.Context, token string) (mcp.IdentityProvider, error) {
+	vk, err := store.LookupVirtualKeyByToken(ctx, r.db, token)
+	if err != nil {
+		return nil, err
+	}
+	return &mcp.MCPIdentity{
+		ProjectID:        vk.ProjectID,
+		VirtualKeyID:     vk.ID,
+		KeyPrefix:        vk.KeyPrefix,
+		Name:             vk.Name,
+		AllowedModels:    vk.AllowedModels,
+		AllowedProviders: vk.AllowedProviders,
+		RPMLimit:         vk.RPMLimit,
+		TPMLimit:         vk.TPMLimit,
+		BudgetLimitUSD:   vk.BudgetLimitUSD,
+		BudgetPeriod:     vk.BudgetPeriod,
+		Source:           "a2a",
+	}, nil
 }
