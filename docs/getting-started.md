@@ -4,6 +4,32 @@
 
 ---
 
+## Quick Setup (Recommended)
+
+The fastest way to get OpenLimit running is with the interactive init wizard:
+
+```bash
+openlimit init
+```
+
+The wizard will guide you through:
+
+1. **Provider configuration** — Enter your API key for OpenAI, Anthropic, Gemini, or any supported provider.
+2. **Database setup** — Configure Postgres (or use the built-in SQLite for local testing).
+3. **First key creation** — Generate a virtual key and project automatically.
+
+That's it — the wizard generates your `gateway.yaml`, validates connectivity, and starts the gateway. You'll be making requests in under 60 seconds.
+
+> **New to OpenLimit?** The init wizard handles everything below automatically. Skip to [Make your first request](#6-make-your-first-request) once the wizard completes.
+
+---
+
+## Advanced Setup
+
+If you prefer full manual control or are deploying to production, follow the steps below.
+
+---
+
 ## Prerequisites
 
 - [Go 1.25+](https://go.dev/dl/) (or Docker)
