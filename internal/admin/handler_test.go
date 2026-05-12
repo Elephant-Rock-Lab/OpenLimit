@@ -1084,3 +1084,117 @@ func TestDashboard_PanelsHaveRoleTabpanel(t *testing.T) {
 		t.Errorf("expected at least 5 aria-labelledby attributes (one per panel), got %d", ariaLabelledByCount)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// BATCH-63 TASK-01: Init Wizard Docs Reference tests
+// ---------------------------------------------------------------------------
+
+// TEST-63-01-01: getting-started.md mentions openlimit init command.
+func TestDocs_MentionInitWizard(t *testing.T) {
+	data, err := os.ReadFile("../../docs/getting-started.md")
+	if err != nil {
+		t.Fatalf("failed to read getting-started.md: %v", err)
+	}
+	content := string(data)
+	if !bytes.Contains([]byte(content), []byte("openlimit init")) {
+		t.Error("getting-started.md does not mention 'openlimit init' command")
+	}
+}
+
+// TEST-63-01-02: getting-started.md has Quick Setup section heading.
+func TestDocs_HasQuickSetupSection(t *testing.T) {
+	data, err := os.ReadFile("../../docs/getting-started.md")
+	if err != nil {
+		t.Fatalf("failed to read getting-started.md: %v", err)
+	}
+	content := string(data)
+	if !bytes.Contains([]byte(content), []byte("Quick Setup")) {
+		t.Error("getting-started.md missing 'Quick Setup' section heading")
+	}
+}
+
+// TEST-63-01-03: getting-started.md mentions Advanced/Manual path.
+func TestDocs_HasAdvancedSetupSection(t *testing.T) {
+	data, err := os.ReadFile("../../docs/getting-started.md")
+	if err != nil {
+		t.Fatalf("failed to read getting-started.md: %v", err)
+	}
+	content := string(data)
+	if !bytes.Contains([]byte(content), []byte("Advanced")) {
+		t.Error("getting-started.md missing 'Advanced' section heading")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// BATCH-63 TASK-02: Mobile CSS Breakpoints + Focus-Visible tests
+// ---------------------------------------------------------------------------
+
+// TEST-63-02-01: index.html has @media breakpoint for 768px.
+func TestDashboard_HasMobileBreakpoint768(t *testing.T) {
+	html := loadDashboardHTML(t)
+	if !bytes.Contains([]byte(html), []byte("@media(max-width:768px)")) && !bytes.Contains([]byte(html), []byte("@media (max-width: 768px)")) {
+		// Try more relaxed check
+		if !bytes.Contains([]byte(html), []byte("768px")) || !bytes.Contains([]byte(html), []byte("@media")) {
+			t.Error("index.html missing @media breakpoint for 768px")
+		}
+	}
+}
+
+// TEST-63-02-02: index.html has @media breakpoint for 1024px.
+func TestDashboard_HasTabletBreakpoint1024(t *testing.T) {
+	html := loadDashboardHTML(t)
+	if !bytes.Contains([]byte(html), []byte("@media(max-width:1024px)")) && !bytes.Contains([]byte(html), []byte("@media (max-width: 1024px)")) {
+		if !bytes.Contains([]byte(html), []byte("1024px")) || !bytes.Contains([]byte(html), []byte("@media")) {
+			t.Error("index.html missing @media breakpoint for 1024px")
+		}
+	}
+}
+
+// TEST-63-02-03: index.html has focus-visible CSS rules.
+func TestDashboard_HasFocusVisibleRules(t *testing.T) {
+	html := loadDashboardHTML(t)
+	if !bytes.Contains([]byte(html), []byte(":focus-visible")) {
+		t.Error("index.html missing :focus-visible CSS rules")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// BATCH-63 TASK-03: Colorblind-Friendly Spend Bars tests
+// ---------------------------------------------------------------------------
+
+// TEST-63-03-01: Budget bar CSS has stripe pattern via repeating-linear-gradient.
+func TestDashboard_BudgetBarHasStripePattern(t *testing.T) {
+	html := loadDashboardHTML(t)
+	if !bytes.Contains([]byte(html), []byte("repeating-linear-gradient")) {
+		t.Error("index.html missing repeating-linear-gradient for budget bar stripe pattern")
+	}
+}
+
+// TEST-63-03-02: Budget bar has safe/warning/danger CSS classes.
+func TestDashboard_BudgetBarHasStatusClasses(t *testing.T) {
+	html := loadDashboardHTML(t)
+	for _, cls := range []string{"budget-bar-safe", "budget-bar-warning", "budget-bar-danger"} {
+		if !bytes.Contains([]byte(html), []byte(cls)) {
+			t.Errorf("index.html missing CSS class %q", cls)
+		}
+	}
+}
+
+// TEST-63-03-03: Budget bar JS applies class based on percentage threshold (70/90).
+func TestDashboard_BudgetBarThresholdLogic(t *testing.T) {
+	html := loadDashboardHTML(t)
+	// Verify the new 70/90 thresholds are in the JS
+	if !bytes.Contains([]byte(html), []byte("pct > 90")) {
+		t.Error("index.html budget bar JS missing 'pct > 90' danger threshold")
+	}
+	if !bytes.Contains([]byte(html), []byte("pct >= 70")) {
+		t.Error("index.html budget bar JS missing 'pct >= 70' warning threshold")
+	}
+	// Verify old 75/95 thresholds are removed
+	if bytes.Contains([]byte(html), []byte("pct > 95")) {
+		t.Error("index.html still contains old 'pct > 95' threshold — should be 'pct > 90'")
+	}
+	if bytes.Contains([]byte(html), []byte("pct >= 75")) {
+		t.Error("index.html still contains old 'pct >= 75' threshold — should be 'pct >= 70'")
+	}
+}
