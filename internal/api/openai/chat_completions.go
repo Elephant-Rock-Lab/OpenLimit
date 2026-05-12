@@ -33,47 +33,52 @@ import (
 )
 
 type Handler struct {
-	cfg           config.Config
-	logger        *slog.Logger
-	router        *routing.Router
-	cache         cache.Cache
-	adapters      map[string]providers.Adapter
-	keys          map[string]*providers.KeyRing
-	limitersMu    sync.Mutex
-	limiters      map[string]*ratelimit.Limiter
-	redisClient   *rediscli.Client
-	breakersMu    sync.Mutex
-	breakers      map[string]*circuit.Breaker
-	prices        *billing.PriceTable
-	usageW        *usageapi.Writer
-	metrics       *metrics.Collector
-	tracer        *tracing.Tracer
-	guardrails    *guardrails.Pipeline
-	mcpRegistry   *mcp.Registry
-	mcpExecutor   *mcp.Executor
-	healthTracker *health.Tracker
-	auditLog      *audit.Logger
-	logBodies     bool
+	cfg              config.Config
+	logger           *slog.Logger
+	router           *routing.Router
+	cache            cache.Cache
+	adapters         map[string]providers.Adapter
+	keys             map[string]*providers.KeyRing
+	limitersMu       sync.Mutex
+	limiters         map[string]*ratelimit.Limiter
+	redisClient      *rediscli.Client
+	breakersMu       sync.Mutex
+	breakers         map[string]*circuit.Breaker
+	prices           *billing.PriceTable
+	usageW           *usageapi.Writer
+	metrics          *metrics.Collector
+	tracer           *tracing.Tracer
+	guardrails       *guardrails.Pipeline
+	mcpRegistry      *mcp.Registry
+	mcpExecutor      *mcp.Executor
+	healthTracker    *health.Tracker
+	auditLog         *audit.Logger
+	logBodies        bool
+	budgetFailClosed bool
+	replayMgr        interface {
+		Replay(openaischema.ChatCompletionRequest, string, time.Duration)
+	}
 }
 
 func NewHandler(cfg config.Config, logger *slog.Logger, router *routing.Router, exactCache cache.Cache, adapters map[string]providers.Adapter, keys map[string]*providers.KeyRing, prices *billing.PriceTable, usageW *usageapi.Writer, m *metrics.Collector, t *tracing.Tracer, g *guardrails.Pipeline, mcpReg *mcp.Registry, mcpExec *mcp.Executor, redisClient *rediscli.Client) *Handler {
 	return &Handler{
-		cfg:         cfg,
-		logger:      logger,
-		router:      router,
-		cache:       exactCache,
-		adapters:    adapters,
-		keys:        keys,
-		limiters:    make(map[string]*ratelimit.Limiter),
-		breakers:    make(map[string]*circuit.Breaker),
-		redisClient: redisClient,
-		prices:      prices,
-		usageW:      usageW,
-		metrics:     m,
-		tracer:      t,
-		guardrails:  g,
-		mcpRegistry: mcpReg,
-		mcpExecutor: mcpExec,
+		cfg:              cfg,
+		logger:           logger,
+		router:           router,
+		cache:            exactCache,
+		adapters:         adapters,
+		keys:             keys,
+		limiters:         make(map[string]*ratelimit.Limiter),
+		breakers:         make(map[string]*circuit.Breaker),
+		redisClient:      redisClient,
+		prices:           prices,
+		usageW:           usageW,
+		metrics:          m,
+		tracer:           t,
+		guardrails:       g,
+		mcpRegistry:      mcpReg,
+		mcpExecutor:      mcpExec,
+		budgetFailClosed: cfg.Billing.FailClosed,
 	}
 }
 
@@ -113,7 +118,12 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// for ExecuteGoverned to reuse, avoiding double routing).
 	plan, err := h.router.Plan(req.Model)
 	if err != nil {
-		writeError(w, r, http.StatusBadRequest, "model_not_found", err.Error())
+		writeJSON(w, http.StatusBadRequest, openaischema.ErrorResponse{Error: openaischema.ErrorBody{
+			Message:         err.Error(),
+			Type:            "model_not_found",
+			RequestID:       requestid.FromContext(r.Context()),
+			AvailableModels: h.router.ModelNames(),
+		}})
 		return
 	}
 	residency := strings.TrimSpace(r.Header.Get("X-Data-Residency"))
@@ -251,6 +261,11 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	)
 
 	writeJSON(w, http.StatusOK, resp)
+
+	// BATCH-55: Fire shadow replay after primary response (non-streaming only)
+	if h.replayMgr != nil {
+		h.replayMgr.Replay(req, result.Target.Provider, time.Since(start))
+	}
 }
 
 func (h *Handler) streamChatCompletions(w http.ResponseWriter, r *http.Request, req openaischema.ChatCompletionRequest, plan *routing.Plan, identity *GovernanceIdentity, start time.Time, requestID string) {
@@ -363,6 +378,10 @@ func (h *Handler) streamChatCompletions(w http.ResponseWriter, r *http.Request, 
 			fmt.Fprintf(w, "event: error\ndata: %s\n\n", errJSON)
 			flusher.Flush()
 
+			if h.metrics != nil {
+				h.metrics.RecordStreamIncomplete(target.Provider)
+			}
+
 			h.logger.Error("chat completion stream interrupted",
 				"request_id", requestID,
 				"model", req.Model,
@@ -417,6 +436,8 @@ func (h *Handler) executePlan(ctx context.Context, req openaischema.ChatCompleti
 			cancel := func() {}
 			if h.cfg.Routing.Defaults.TimeoutMS > 0 {
 				callCtx, cancel = context.WithTimeout(ctx, time.Duration(h.cfg.Routing.Defaults.TimeoutMS)*time.Millisecond)
+			} else {
+				callCtx, cancel = context.WithTimeout(ctx, 30*time.Second)
 			}
 			callStart := time.Now()
 			resp, err := adapter.CompleteChat(callCtx, req, target, key)
@@ -436,7 +457,11 @@ func (h *Handler) executePlan(ctx context.Context, req openaischema.ChatCompleti
 				break
 			}
 			h.metrics.RecordRetry(target.Provider, target.Model)
-			time.Sleep(backoff(attempt, h.cfg.Routing.Defaults.Retry))
+			select {
+			case <-time.After(backoff(attempt, h.cfg.Routing.Defaults.Retry)):
+			case <-ctx.Done():
+				return nil, providers.Target{}, totalAttempts, ctx.Err()
+			}
 		}
 	}
 
@@ -508,7 +533,11 @@ func (h *Handler) openStream(ctx context.Context, req openaischema.ChatCompletio
 				break
 			}
 			h.metrics.RecordRetry(target.Provider, target.Model)
-			time.Sleep(backoff(attempt, h.cfg.Routing.Defaults.Retry))
+			select {
+			case <-time.After(backoff(attempt, h.cfg.Routing.Defaults.Retry)):
+			case <-ctx.Done():
+				return nil, providers.Target{}, totalAttempts, ctx.Err()
+			}
 		}
 	}
 
@@ -623,6 +652,9 @@ func (h *Handler) getLimiter(keyID string, rpm, tpm int) ratelimit.RateLimiter {
 	return l
 }
 
+// maxBreakers caps the circuit breaker map to prevent unbounded growth.
+const maxBreakers = 1000
+
 func (h *Handler) getBreaker(provider, model, region string) *circuit.Breaker {
 	h.breakersMu.Lock()
 	defer h.breakersMu.Unlock()
@@ -635,8 +667,26 @@ func (h *Handler) getBreaker(provider, model, region string) *circuit.Breaker {
 	if !ok {
 		b = circuit.NewBreaker(h.redisClient, provider, model, h.logger)
 		h.breakers[key] = b
+		// Evict if over cap
+		for len(h.breakers) > maxBreakers {
+			for k := range h.breakers {
+				delete(h.breakers, k)
+				break
+			}
+		}
 	}
 	return b
+}
+
+// Close cleans up background goroutines created by the handler.
+// Must be called during server shutdown to prevent goroutine leaks.
+func (h *Handler) Close() {
+	h.limitersMu.Lock()
+	for id, l := range h.limiters {
+		l.Close()
+		delete(h.limiters, id)
+	}
+	h.limitersMu.Unlock()
 }
 
 func writeError(w http.ResponseWriter, r *http.Request, status int, typ string, message string) {
@@ -654,9 +704,10 @@ func writeGovernanceError(w http.ResponseWriter, r *http.Request, ge *Governance
 		w.Header().Set(k, v)
 	}
 	writeJSON(w, ge.StatusCode, openaischema.ErrorResponse{Error: openaischema.ErrorBody{
-		Message:   ge.Message,
-		Type:      ge.Type,
-		RequestID: requestid.FromContext(r.Context()),
+		Message:         ge.Message,
+		Type:            ge.Type,
+		RequestID:       requestid.FromContext(r.Context()),
+		AvailableModels: ge.AvailableModels,
 	}})
 }
 
