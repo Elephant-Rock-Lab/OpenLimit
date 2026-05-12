@@ -3,6 +3,7 @@ package circuit
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
@@ -184,5 +185,60 @@ func TestBreaker_RedisDegradedFallsToLocal(t *testing.T) {
 	b.RecordFailure()
 	if b.Allow() {
 		t.Fatal("expected reject in local mode after threshold")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// BATCH-58 / TASK-01: Atomic Redis increment tests
+// ---------------------------------------------------------------------------
+
+// TEST-58-01-03: Concurrent RecordFailure calls produce correct total count.
+// With HINCRBY, 10 concurrent failures must produce a count >= 10 (no lost increments).
+func TestRedisBreaker_ConcurrentRecordFailure_AtomicCount(t *testing.T) {
+	b, rc, _ := newTestBreaker(t, 20) // high threshold so it doesn't open
+
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			b.RecordFailure()
+		}()
+	}
+	wg.Wait()
+
+	// Read the failure count directly from Redis
+	ctx := context.Background()
+	m, err := rc.HGetAll(ctx, b.key)
+	if err != nil {
+		t.Fatalf("HGetAll error: %v", err)
+	}
+	count := atoi64(m["failures"])
+	if count < 10 {
+		t.Errorf("expected failures >= 10 (atomic), got %d", count)
+	}
+}
+
+// TEST-58-01-04: Circuit breaker opens at exact threshold after atomic increments.
+func TestRedisBreaker_OpensAtExactThreshold(t *testing.T) {
+	b, _, _ := newTestBreaker(t, 3)
+
+	// Send exactly 3 failures
+	b.RecordFailure()
+	if !b.Allow() {
+		t.Fatal("should allow after 1 failure (threshold=3)")
+	}
+	b.RecordFailure()
+	if !b.Allow() {
+		t.Fatal("should allow after 2 failures (threshold=3)")
+	}
+	b.RecordFailure()
+
+	// After exactly 3 failures, Allow should return false
+	if b.Allow() {
+		t.Fatal("expected breaker to be open after exactly 3 failures")
+	}
+	if b.State() != Open {
+		t.Fatalf("expected Open state after threshold, got %s", b.State())
 	}
 }

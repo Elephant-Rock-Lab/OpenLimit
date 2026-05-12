@@ -194,26 +194,19 @@ func (b *Breaker) redisRecordFailure() {
 	defer cancel()
 
 	now := time.Now()
-	m, err := b.rc.HGetAll(ctx, b.key)
+
+	// Atomically increment the failure counter using HINCRBY.
+	// This eliminates the TOCTOU race from the previous HGETALL + HSET pattern.
+	newCount, err := b.rc.HIncrBy(ctx, b.key, "failures", 1)
 	if err != nil {
 		return
 	}
 
-	lastFail := atoi64(m["last_fail"])
-	failures := atoi64(m["failures"])
-
-	if lastFail > 0 && now.Sub(time.Unix(lastFail, 0)) > b.window {
-		failures = 1
-	} else {
-		failures++
-	}
-
 	fields := []interface{}{
-		"failures", failures,
 		"last_fail", now.Unix(),
 	}
 
-	if int(failures) >= b.threshold {
+	if int(newCount) >= b.threshold {
 		fields = append(fields, "opened_at", now.Unix())
 	}
 

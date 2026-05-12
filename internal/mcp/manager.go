@@ -11,13 +11,14 @@ import (
 
 // serverState tracks the connection state of an MCP server.
 type serverState struct {
-	mu       sync.Mutex
-	name     string
-	client   *Client
-	config   config.MCPServerConfig
-	connected bool
-	lastPing  time.Time
-	lastError error
+	mu         sync.Mutex
+	name       string
+	client     *Client
+	config     config.MCPServerConfig
+	connected  bool
+	lastPing   time.Time
+	lastError  error
+	cancelNotif context.CancelFunc // cancels the notification listener goroutine
 
 	// debounce for tools/list_changed notifications
 	refreshTimer *time.Timer
@@ -74,7 +75,9 @@ func (m *Manager) Start(ctx context.Context) error {
 	// Start notification listener for each connected server
 	for _, state := range m.servers {
 		if state.connected {
-			go m.listenNotifications(childCtx, state)
+			notifCtx, notifCancel := context.WithCancel(childCtx)
+			state.cancelNotif = notifCancel
+			go m.listenNotifications(notifCtx, state)
 		}
 	}
 
@@ -294,7 +297,16 @@ func (m *Manager) tryReconnect(ctx context.Context, state *serverState) {
 	)
 
 	// Start notification listener for reconnected server
-	go m.listenNotifications(ctx, state)
+	// Cancel old listener before starting a new one
+	state.mu.Lock()
+	if state.cancelNotif != nil {
+		state.cancelNotif()
+	}
+	notifCtx, notifCancel := context.WithCancel(ctx)
+	state.cancelNotif = notifCancel
+	state.mu.Unlock()
+
+	go m.listenNotifications(notifCtx, state)
 }
 
 // listenNotifications listens for server-initiated notifications on a client's
