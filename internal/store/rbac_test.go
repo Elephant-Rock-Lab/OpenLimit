@@ -90,6 +90,34 @@ func TestValidateRole(t *testing.T) {
 	}
 }
 
+func TestGetRolePermissions(t *testing.T) {
+	perms := GetRolePermissions()
+	if len(perms) != 3 {
+		t.Fatalf("expected 3 roles, got %d", len(perms))
+	}
+	// Verify admin has all permissions
+	adminPerms := perms[RoleAdmin]
+	if len(adminPerms) != 9 {
+		t.Errorf("admin has %d permissions, want 9", len(adminPerms))
+	}
+	// Verify sorted
+	for role, actions := range perms {
+		for i := 1; i < len(actions); i++ {
+			if actions[i] < actions[i-1] {
+				t.Errorf("%s permissions not sorted: %v", role, actions)
+			}
+		}
+	}
+	// Verify consistency with RoleAllowed
+	for role, actions := range perms {
+		for _, action := range actions {
+			if !RoleAllowed(role, action) {
+				t.Errorf("GetRolePermissions says %s can %s, but RoleAllowed says no", role, action)
+			}
+		}
+	}
+}
+
 func TestCreateUser(t *testing.T) {
 	db := openTestDB(t)
 	defer db.Close()

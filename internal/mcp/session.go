@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -13,7 +14,7 @@ import (
 type Session struct {
 	ID        string
 	CreatedAt time.Time
-	lastSeen  time.Time
+	lastSeen  atomic.Int64 // UnixNano — safe to read/write under RLock
 	notifier  chan json.RawMessage // buffered channel for SSE notifications
 }
 
@@ -48,8 +49,8 @@ func (s *SessionStore) CreateOrGet(id string) *Session {
 
 	if id != "" {
 		if sess, ok := s.sessions[id]; ok {
-			sess.lastSeen = time.Now()
-			return sess
+			sess.lastSeen.Store(time.Now().UnixNano())
+		return sess
 		}
 	}
 
@@ -60,9 +61,9 @@ func (s *SessionStore) CreateOrGet(id string) *Session {
 	sess := &Session{
 		ID:        id,
 		CreatedAt: time.Now(),
-		lastSeen:  time.Now(),
 		notifier:  make(chan json.RawMessage, 32),
 	}
+	sess.lastSeen.Store(time.Now().UnixNano())
 	s.sessions[id] = sess
 	s.logger.Info("session created", "session_id", id)
 	return sess
@@ -74,7 +75,7 @@ func (s *SessionStore) Get(id string) (*Session, bool) {
 	defer s.mu.RUnlock()
 	sess, ok := s.sessions[id]
 	if ok {
-		sess.lastSeen = time.Now()
+		sess.lastSeen.Store(time.Now().UnixNano())
 	}
 	return sess, ok
 }
@@ -137,7 +138,8 @@ func (s *SessionStore) evictLoop() {
 		s.mu.Lock()
 		now := time.Now()
 		for id, sess := range s.sessions {
-			if now.Sub(sess.lastSeen) > s.ttl {
+			lastSeen := time.Unix(0, sess.lastSeen.Load())
+			if now.Sub(lastSeen) > s.ttl {
 				close(sess.notifier)
 				delete(s.sessions, id)
 				s.logger.Info("session expired", "session_id", id)

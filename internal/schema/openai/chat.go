@@ -77,10 +77,11 @@ type ErrorResponse struct {
 }
 
 type ErrorBody struct {
-	Message   string         `json:"message"`
-	Type      string         `json:"type"`
-	Code      string         `json:"code,omitempty"`
-	Details   map[string]any `json:"details,omitempty"`
-	Stage     string         `json:"stage,omitempty"`
-	RequestID string         `json:"request_id,omitempty"`
+	Message         string         `json:"message"`
+	Type            string         `json:"type"`
+	Code            string         `json:"code,omitempty"`
+	Details         map[string]any `json:"details,omitempty"`
+	Stage           string         `json:"stage,omitempty"`
+	RequestID       string         `json:"request_id,omitempty"`
+	AvailableModels []string       `json:"available_models,omitempty"`
 }

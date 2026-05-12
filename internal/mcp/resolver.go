@@ -19,24 +19,33 @@ func NewDBKeyResolver(db *sql.DB) *DBKeyResolver {
 }
 
 // ResolveToolName finds the virtual key associated with the given MCP tool name.
-// It tries mcp_tool_name first (exact match), then falls back to sanitized key name.
+// Uses a targeted SQL query that only loads MCP-enabled, non-revoked keys.
 func (r *DBKeyResolver) ResolveToolName(ctx context.Context, toolName string) (*ResolvedKey, error) {
-	keys, err := store.ListVirtualKeys(ctx, r.db, "")
+	// Try exact mcp_tool_name match first via filtered SQL
+	keys, err := store.ListVirtualKeysForMCP(ctx, r.db, toolName)
 	if err != nil {
-		return nil, fmt.Errorf("query keys: %w", err)
+		return nil, fmt.Errorf("query MCP keys: %w", err)
+	}
+
+	// Check for exact mcp_tool_name match
+	for i := range keys {
+		k := &keys[i]
+		if k.MCPToolName != "" && sanitizeToolName(k.MCPToolName) == toolName {
+			return toResolvedKey(k), nil
+		}
+	}
+
+	// If exact match failed, try sanitized key name and vk_<id[:8]> patterns
+	// Load all MCP keys (no toolName filter) for fallback matching
+	if len(keys) == 0 || toolName == "" {
+		keys, err = store.ListVirtualKeysForMCP(ctx, r.db, "")
+		if err != nil {
+			return nil, fmt.Errorf("query MCP keys: %w", err)
+		}
 	}
 
 	for i := range keys {
 		k := &keys[i]
-		if !k.AllowMCPServer || k.RevokedAt != nil {
-			continue
-		}
-
-		// Exact match on mcp_tool_name (if set)
-		if k.MCPToolName != "" && sanitizeToolName(k.MCPToolName) == toolName {
-			return toResolvedKey(k), nil
-		}
-
 		// Fall back to sanitized key name
 		if sanitizeToolName(k.Name) == toolName {
 			return toResolvedKey(k), nil

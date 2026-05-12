@@ -64,7 +64,7 @@ func Validate(cfg Config) error {
 				case "groq":
 					provider.BaseURL = "https://api.groq.com/openai/v1"
 				case "cohere":
-					provider.BaseURL = "https://api.cohere.ai/v2"
+					provider.BaseURL = "https://api.cohere.com/v2"
 				case "mistral":
 					provider.BaseURL = "https://api.mistral.ai/v1"
 				}
@@ -106,6 +106,9 @@ func Validate(cfg Config) error {
 	}
 	if cfg.Admin.Enabled && strings.TrimSpace(cfg.Database.URL) == "" {
 		errs = append(errs, "admin is enabled but database.url is not configured")
+	}
+	if cfg.Admin.Enabled && cfg.Admin.BearerToken == "" && !cfg.Admin.OIDC.Enabled {
+		errs = append(errs, "admin is enabled but no authentication method is configured (set admin_token or enable OIDC)")
 	}
 
 	if cfg.Telemetry.Tracing.Enabled {
@@ -199,7 +202,15 @@ func Validate(cfg Config) error {
 	}
 
 	if len(errs) > 0 {
-		return fmt.Errorf("invalid config: %s", strings.Join(errs, "; "))
+		if len(errs) == 1 {
+			return fmt.Errorf("invalid config: %s", errs[0])
+		}
+		var sb strings.Builder
+		sb.WriteString("invalid config:")
+		for i, e := range errs {
+			fmt.Fprintf(&sb, "\n  %d. %s", i+1, e)
+		}
+		return fmt.Errorf("%s", sb.String())
 	}
 	return nil
 }

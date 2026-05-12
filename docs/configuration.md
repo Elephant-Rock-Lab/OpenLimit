@@ -211,6 +211,67 @@ providers:
 
 **Data residency**: Send `X-Data-Residency: eu` to restrict routing to EU regions. See [Security](security.md) for details.
 
+### Cost weights (smart routing)
+
+When using `smart` routing strategy, configure the weight of each factor:
+
+```yaml
+routing:
+  strategy: smart
+  cost_weights:
+    cost: 0.4          # weight for provider cost (0.0–1.0)
+    latency: 0.4       # weight for observed latency (0.0–1.0)
+    health: 0.2        # weight for provider health score (0.0–1.0)
+```
+
+The `smart` strategy computes a weighted score for each route:
+- **Cost**: Based on the embedded pricing catalog (22 entries). Lower cost = higher score.
+- **Latency**: Based on observed P50 latency from Prometheus metrics. Lower latency = higher score.
+- **Health**: Based on circuit breaker state and failure count. Healthier = higher score.
+
+Scores are normalized to 0.0–1.0. Missing data defaults to the median score. The route with the highest combined score wins.
+
+Use `GET /admin/routing/costs` to view the pricing catalog and current strategy.
+
+---
+
+### Replay & A/B Testing
+
+Configure shadow traffic for provider comparison without affecting production:
+
+```yaml
+replay:
+  enabled: true
+  routes:
+    - model: smart
+      shadow_provider: anthropic
+      shadow_model: claude-3-haiku-20240307
+      sample_rate: 0.1   # replay 10% of requests
+    - model: fast
+      shadow_provider: together
+      shadow_model: meta-llama/Meta-Llama-3-8B-Instruct
+      sample_rate: 0.05  # replay 5% of requests
+```
+
+| Field | Required | Description |
+|:------|:---------|:------------|
+| `replay.enabled` | Yes | Enable/disable replay globally |
+| `replay.routes[]` | Yes | List of routes to replay |
+| `routes[].model` | Yes | Logical model alias to match (must exist in `models` config) |
+| `routes[].shadow_provider` | Yes | Provider to send shadow traffic to |
+| `routes[].shadow_model` | Yes | Model to use for shadow requests |
+| `routes[].sample_rate` | Yes | Fraction of requests to replay (0.0–1.0) |
+
+**How it works:**
+1. Primary request executes normally and returns to client
+2. If `sample_rate` passes, a shadow request fires in a background goroutine
+3. Shadow results stored in a ring buffer (last 1000 results)
+4. `GET /admin/routing/replay` returns results + summary stats
+
+**Summary stats include:** avg primary latency, avg shadow latency, shadow error rate, total replayed requests.
+
+Use replay to compare providers, validate migrations, and measure latency differences — all without risking production traffic.
+
 ---
 
 ## Cache
@@ -417,9 +478,49 @@ See [Agent Protocols](agent-protocols.md) for full MCP and A2A configuration.
 
 ---
 
+## Plugins
+
+The `plugins` section registers custom plugins that extend the gateway with custom guardrails, HTTP middleware, or provider adapters.
+
+```yaml
+plugins:
+  - name: example-length-guardrail
+    type: guardrail
+    config:
+      min_length: 10
+      max_length: 5000
+
+  - name: header-injector
+    type: middleware
+    config:
+      headers:
+        X-Custom-Header: "my-value"
+```
+
+| Field | Required | Description |
+|:------|:---------|:------------|
+| `name` | Yes | Must match the plugin's registered name |
+| `type` | Yes | `"guardrail"`, `"middleware"`, or `"provider"` |
+| `config` | No | Plugin-specific configuration passed to `Init()` |
+
+For guardrail plugins, reference them in the guardrail pipeline:
+
+```yaml
+guardrails:
+  input:
+    - type: plugin
+      config:
+        name: example-length-guardrail
+```
+
+See [Plugins](plugins.md) for the full plugin development guide with examples.
+
+---
+
 ## Next steps
 
 - **[Governance](governance.md)** — Configure virtual keys, budgets, guardrails, RBAC
+- **[Plugins](plugins.md)** — Write custom guardrails, middleware, and provider adapters
 - **[Agent Protocols](agent-protocols.md)** — Set up MCP or A2A
 - **[Security](security.md)** — Encrypt provider keys with KMS
 - **[Deployment](deployment.md)** — Deploy with Docker Compose or Helm

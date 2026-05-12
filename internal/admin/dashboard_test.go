@@ -98,7 +98,7 @@ func TestDashboard_ContainsAdminAPICalls(t *testing.T) {
 	handler.ServeHTTP(w, req)
 
 	body := w.Body.String()
-	endpoints := []string{"/admin/projects", "/admin/keys", "/admin/usage", "/admin/usage/summary", "/health", "/ready"}
+	endpoints := []string{"/admin/projects", "/admin/keys", "/admin/usage", "/admin/usage/summary", "/health", "/admin/health/providers"}
 	for _, ep := range endpoints {
 		if !strings.Contains(body, ep) {
 			t.Errorf("expected API call to %q in dashboard JS", ep)

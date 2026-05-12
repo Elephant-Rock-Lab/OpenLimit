@@ -110,14 +110,12 @@ configs/                      # YAML configuration files
 6. **Streaming skips MCP tool interception** — Tool calls in streaming responses pass through to the client for execution.
 7. **MCP HTTP transport only** — No stdio transport support. Use `supergateway` or similar to bridge stdio servers.
 8. **Parallel tool execution** — Multiple tool calls within one round are executed concurrently. Stateful MCP servers may have issues.
-9. ~~**A2A SSE is single-instance**~~ — Resolved in v1.1.0 via Redis Pub/Sub bridge.
-10. **A2A push notifications are best-effort** — 3 retries with backoff, then give up. No dead-letter queue.
-11. **RBAC role changes take effect on next request** — Roles are looked up from the DB on each request, not cached in JWT.
-12. ~~**No Redis Cluster**~~ — Resolved in v1.1.0. Set `redis.cluster: true` in config.
-13. **Latency routing strategy requires Prometheus** — Without metrics enabled, falls back to priority ordering.
-14. **Single OIDC issuer** — One IdP per gateway instance. Multi-tenant OIDC is not supported.
-15. **Streaming skips cache and output guardrails** — Streaming requests run rate limiting, budget checks, and input guardrails pre-stream, plus usage logging and metrics post-stream. Cache lookup/store and output guardrails are not applied to streaming requests.
-16. **A2A has no per-key governance** — A2A requests use gateway-level auth (bearer token). Rate limits, budgets, and per-key model restrictions are not enforced on A2A entry.
+9. **A2A push notifications are best-effort** — 3 retries with backoff, then give up. No dead-letter queue.
+10. **RBAC role changes take effect on next request** — Roles are looked up from the DB on each request, not cached in JWT.
+11. **Latency routing strategy requires Prometheus** — Without metrics enabled, falls back to priority ordering.
+12. **OIDC requires explicit issuer per provider** — Multi-tenant OIDC is supported as of v1.2.0, but each IdP must be listed explicitly in configuration. Dynamic issuer discovery is not supported.
+13. **Streaming skips cache and output guardrails** — Streaming requests run rate limiting, budget checks, and input guardrails pre-stream, plus usage logging and metrics post-stream. Cache lookup/store and output guardrails are not applied to streaming requests.
+14. **A2A has no per-key governance** — A2A requests use gateway-level auth (bearer token). Rate limits, budgets, and per-key model restrictions are not enforced on A2A entry.
 
 ---
 

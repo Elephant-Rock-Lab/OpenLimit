@@ -505,7 +505,7 @@ func (h *Handler) checkBudget(ctx context.Context, identity *GovernanceIdentity)
 	if identity == nil || identity.SkipBudget || identity.BudgetLimitUSD <= 0 || h.usageW == nil {
 		return nil
 	}
-	result, err := usageapi.CheckBudget(h.usageW.DB(), identity.VirtualKeyID, identity.BudgetPeriod, identity.BudgetLimitUSD, h.budgetFailClosed)
+	result, err := usageapi.CheckBudget(ctx, h.usageW.DB(), identity.VirtualKeyID, identity.BudgetPeriod, identity.BudgetLimitUSD, h.budgetFailClosed)
 	if err != nil {
 		// Fail-closed: DB error → reject
 		return &GovernanceError{

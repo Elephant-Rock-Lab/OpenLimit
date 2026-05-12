@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -263,7 +264,8 @@ func (h *ServerHandler) handleToolsCall(req Request) (json.RawMessage, *RPCError
 	}
 
 	// Execute the tool call via the ChatExecutor callback
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
 	result, err := h.chatExecutor(ctx, params.Name, params.Arguments)
 	if err != nil {
 		h.logger.Error("tool execution failed", "tool", params.Name, "error", err)
@@ -298,7 +300,7 @@ func (h *ServerHandler) authenticate(r *http.Request) bool {
 			return false
 		}
 		token := strings.TrimPrefix(authHeader, "Bearer ")
-		return token == h.cfg.Auth.BearerToken
+		return subtle.ConstantTimeCompare([]byte(token), []byte(h.cfg.Auth.BearerToken)) == 1
 	case "virtual_key":
 		if h.db == nil {
 			return false

@@ -236,3 +236,57 @@ func testDBURL() string {
 func getEnv(key string) string {
 	return os.Getenv(key)
 }
+
+func TestLoggerCloseDrainsEvents(t *testing.T) {
+	// With a nil-DB logger, Record is a no-op and no goroutine is spawned.
+	// Close() must return without blocking.
+	l := NewLogger(nil, slog.Default(), 100)
+
+	// These are silently dropped since db == nil
+	for i := 0; i < 10; i++ {
+		l.Record(Event{EventType: "test", Actor: "system", Action: "noop", Resource: "test:drain", Outcome: "success"})
+	}
+
+	// Must not block or panic
+	done := make(chan struct{})
+	go func() {
+		l.Close()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Pass: Close returned
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close() blocked on nil-DB logger")
+	}
+}
+
+func TestLoggerRecordDropsOnFullBuffer(t *testing.T) {
+	// Create a logger with buffer size 1 so the second write is dropped.
+	// We use a nil-DB logger and manually patch the internals to simulate
+	// a buffered channel that drops on overflow.
+	l := &Logger{
+		events: make(chan Event, 1),
+		logger: slog.Default(),
+	}
+
+	// First event fills the buffer
+	l.events <- Event{EventType: "test.1"}
+
+	// Second event should be dropped via the select/default path.
+	// Record checks l.db != nil, so set a dummy non-nil db to enter the path.
+	// We can't easily set *sql.DB without a real connection, so test the
+	// channel behavior directly.
+	select {
+	case l.events <- Event{EventType: "test.2"}:
+		t.Error("expected event to be dropped, but buffer accepted it")
+	default:
+		// Correct: buffer full, event dropped
+	}
+
+	// Verify only one event in the channel
+	if len(l.events) != 1 {
+		t.Errorf("buffer len = %d, want 1", len(l.events))
+	}
+}

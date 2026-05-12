@@ -15,6 +15,7 @@ func Load(path string) (Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
+			normalize(&cfg)
 			return cfg, Validate(cfg)
 		}
 		return Config{}, fmt.Errorf("read %s: %w", path, err)
@@ -89,6 +90,9 @@ func normalize(cfg *Config) {
 	}
 	if cfg.Routing.Defaults.Retry.MaxMS <= 0 {
 		cfg.Routing.Defaults.Retry.MaxMS = 4000
+	}
+	if cfg.Server.MaxBodySizeKB <= 0 {
+		cfg.Server.MaxBodySizeKB = 10240 // 10MB default
 	}
 	if cfg.Providers == nil {
 		cfg.Providers = map[string]ProviderConfig{}

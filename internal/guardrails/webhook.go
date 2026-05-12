@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"os"
 	"time"
+
+	"openlimit/internal/providers"
 )
 
 // WebhookStage calls an external HTTP service for guardrail validation.
@@ -154,7 +156,7 @@ func (s *WebhookStage) call(ctx context.Context, direction, content string) (Res
 		return Result{Action: Pass}, nil
 	}
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, providers.MaxProviderResponseSize))
 	if err != nil {
 		if s.blockOnError {
 			return Result{Action: Block, Message: "webhook response read error", StageName: s.Name()}, nil

@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"openlimit/internal/providers"
 )
 
 // OllamaEmbedder calls Ollama's native /api/embeddings endpoint.
@@ -64,7 +66,7 @@ func (e *OllamaEmbedder) Embed(ctx context.Context, text string) ([]float32, err
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, providers.MaxProviderResponseSize))
 		return nil, fmt.Errorf("ollama embedding API returned %d: %s", resp.StatusCode, string(respBody))
 	}
 

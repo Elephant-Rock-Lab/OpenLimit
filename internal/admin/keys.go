@@ -138,17 +138,7 @@ func (h *Handler) listKeys(w http.ResponseWriter, r *http.Request) {
 
 	projectID := r.URL.Query().Get("project_id")
 
-	keys, err := store.ListVirtualKeys(r.Context(), h.db, projectID)
-	if err != nil {
-		writeAdminError(w, r, http.StatusInternalServerError, "internal_error", "failed to list keys")
-		return
-	}
-	if keys == nil {
-		keys = []store.VirtualKey{}
-	}
-
-	// BATCH-29 TASK-01: Server-side pagination
-	totalCount := len(keys)
+	// Parse pagination parameters
 	offset := 0
 	limit := 100 // default matches pre-pagination behavior
 	if o, err := strconv.Atoi(r.URL.Query().Get("offset")); err == nil && o >= 0 {
@@ -158,14 +148,20 @@ func (h *Handler) listKeys(w http.ResponseWriter, r *http.Request) {
 		limit = l
 	}
 
-	// Apply offset and limit
-	if offset > len(keys) {
-		keys = keys[:0]
-	} else {
-		keys = keys[offset:]
+	// SQL-level pagination with COUNT(*) for total
+	totalCount, err := store.CountVirtualKeys(r.Context(), h.db, projectID)
+	if err != nil {
+		writeAdminError(w, r, http.StatusInternalServerError, "internal_error", "failed to count keys")
+		return
 	}
-	if len(keys) > limit {
-		keys = keys[:limit]
+
+	keys, err := store.ListVirtualKeys(r.Context(), h.db, projectID, offset, limit)
+	if err != nil {
+		writeAdminError(w, r, http.StatusInternalServerError, "internal_error", "failed to list keys")
+		return
+	}
+	if keys == nil {
+		keys = []store.VirtualKey{}
 	}
 
 	w.Header().Set("X-Total-Count", strconv.Itoa(totalCount))

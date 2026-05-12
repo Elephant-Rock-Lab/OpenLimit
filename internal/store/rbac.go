@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"sort"
 	"time"
 )
 
@@ -56,6 +57,21 @@ var rolePermissions = map[string]map[string]bool{
 		"usage:read":   true,
 		"audit:read":   true,
 	},
+}
+
+// GetRolePermissions returns a copy of the role-permission matrix.
+// The returned map is safe to read without synchronization.
+func GetRolePermissions() map[string][]string {
+	result := make(map[string][]string, len(rolePermissions))
+	for role, perms := range rolePermissions {
+		actions := make([]string, 0, len(perms))
+		for action := range perms {
+			actions = append(actions, action)
+		}
+		sort.Strings(actions)
+		result[role] = actions
+	}
+	return result
 }
 
 // RoleAllowed checks if a role has permission for the given action.

@@ -17,6 +17,7 @@ import (
 
 	"openlimit/internal/providers"
 	openaischema "openlimit/internal/schema/openai"
+
 )
 
 // Adapter implements providers.Adapter for Google Vertex AI.
@@ -179,7 +180,7 @@ func (a *Adapter) CompleteChat(ctx context.Context, req openaischema.ChatComplet
 	}
 	defer resp.Body.Close()
 
-	data, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, providers.MaxProviderResponseSize))
 	if err != nil {
 		return nil, fmt.Errorf("read vertex response: %w", err)
 	}
@@ -232,7 +233,7 @@ func (a *Adapter) StreamChat(ctx context.Context, req openaischema.ChatCompletio
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		defer resp.Body.Close()
-		data, _ := io.ReadAll(resp.Body)
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, providers.MaxProviderResponseSize))
 		return nil, &providers.HTTPError{StatusCode: resp.StatusCode, Body: string(data)}
 	}
 

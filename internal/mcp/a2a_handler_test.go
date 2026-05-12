@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -1485,5 +1487,197 @@ func TestExtractTextFromBase64FilePart(t *testing.T) {
 	text := extractTextFromHistory(history)
 	if !strings.Contains(text, "[file: text/plain <base64") {
 		t.Errorf("text = %q", text)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// BATCH-24/TASK-03: Virtual key authentication tests
+// ---------------------------------------------------------------------------
+
+// mockA2AKeyResolver implements VirtualKeyResolver for testing.
+type mockA2AKeyResolver struct {
+	identity IdentityProvider
+	err      error
+}
+
+func (m *mockA2AKeyResolver) ResolveVirtualKey(_ context.Context, _ string) (IdentityProvider, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.identity, nil
+}
+
+func testA2AHandlerWithResolver(t *testing.T, resolver VirtualKeyResolver) *A2AHandler {
+	t.Helper()
+	cfg := testA2AConfig()
+	cfg.Authentication.Mode = "virtual_key"
+	store := NewMemoryTaskStore(100, time.Hour)
+	exec := func(ctx context.Context, toolName string, args map[string]any) (*ChatResult, error) {
+		return &ChatResult{Model: "test-model", Content: "test response"}, nil
+	}
+	h, err := NewA2AHandler(cfg, exec, store, slog.Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolver != nil {
+		h.SetKeyResolver(resolver)
+	}
+	return h
+}
+
+// TEST-24-03-01: authenticate with mode=virtual_key and valid key returns identity
+func TestAuthenticate_VirtualKey_ValidKey(t *testing.T) {
+	h := testA2AHandlerWithResolver(t, &mockA2AKeyResolver{
+		identity: &MCPIdentity{
+			ProjectID:    "proj-1",
+			VirtualKeyID: "vk-1",
+			KeyPrefix:    "gw-abc1",
+			Source:       "a2a",
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/a2a", nil)
+	req.Header.Set("Authorization", "Bearer gw-testkey1234567890abcdef")
+
+	idp, ok := h.authenticate(req)
+	if !ok {
+		t.Fatal("expected auth success")
+	}
+	if idp == nil {
+		t.Fatal("expected non-nil identity")
+	}
+	if idp.GetVirtualKeyID() != "vk-1" {
+		t.Errorf("VirtualKeyID = %q, want %q", idp.GetVirtualKeyID(), "vk-1")
+	}
+	if idp.GetSource() != "a2a" {
+		t.Errorf("Source = %q, want %q", idp.GetSource(), "a2a")
+	}
+}
+
+// TEST-24-03-02: authenticate with mode=virtual_key and invalid key returns false
+func TestAuthenticate_VirtualKey_InvalidKey(t *testing.T) {
+	h := testA2AHandlerWithResolver(t, &mockA2AKeyResolver{
+		err: fmt.Errorf("key not found"),
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/a2a", nil)
+	req.Header.Set("Authorization", "Bearer gw-invalid")
+
+	_, ok := h.authenticate(req)
+	if ok {
+		t.Fatal("expected auth failure for invalid key")
+	}
+}
+
+// TEST-24-03-03: authenticate with mode=virtual_key and non-gw- prefix returns false
+func TestAuthenticate_VirtualKey_NonGwPrefix(t *testing.T) {
+	h := testA2AHandlerWithResolver(t, &mockA2AKeyResolver{})
+
+	req := httptest.NewRequest(http.MethodPost, "/a2a", nil)
+	req.Header.Set("Authorization", "Bearer sk-someotherkey12345")
+
+	_, ok := h.authenticate(req)
+	if ok {
+		t.Fatal("expected auth failure for non-gw- prefix")
+	}
+}
+
+// TEST-24-03-04: authenticate with mode=bearer_token returns nil identity (backward compat)
+func TestAuthenticate_BearerToken_NilIdentity(t *testing.T) {
+	cfg := testA2AConfig()
+	cfg.Authentication.Mode = "bearer_token"
+	cfg.Authentication.BearerToken = "my-secret"
+	store := NewMemoryTaskStore(100, time.Hour)
+	exec := func(ctx context.Context, toolName string, args map[string]any) (*ChatResult, error) {
+		return &ChatResult{Model: "test", Content: "ok"}, nil
+	}
+	h, _ := NewA2AHandler(cfg, exec, store, slog.Default())
+
+	req := httptest.NewRequest(http.MethodPost, "/a2a", nil)
+	req.Header.Set("Authorization", "Bearer my-secret")
+
+	idp, ok := h.authenticate(req)
+	if !ok {
+		t.Fatal("expected auth success for bearer_token")
+	}
+	if idp != nil {
+		t.Fatal("expected nil identity for bearer_token mode")
+	}
+}
+
+// TEST-24-03-05: authenticate with mode=none returns nil identity (backward compat)
+func TestAuthenticate_None_NilIdentity(t *testing.T) {
+	cfg := testA2AConfig()
+	cfg.Authentication.Mode = "none"
+	store := NewMemoryTaskStore(100, time.Hour)
+	exec := func(ctx context.Context, toolName string, args map[string]any) (*ChatResult, error) {
+		return &ChatResult{Model: "test", Content: "ok"}, nil
+	}
+	h, _ := NewA2AHandler(cfg, exec, store, slog.Default())
+
+	req := httptest.NewRequest(http.MethodPost, "/a2a", nil)
+
+	idp, ok := h.authenticate(req)
+	if !ok {
+		t.Fatal("expected auth success for none mode")
+	}
+	if idp != nil {
+		t.Fatal("expected nil identity for none mode")
+	}
+}
+
+// TEST-24-03-06: Identity stored in task metadata for non-blocking path
+func TestVirtualKey_IdentityInTaskMetadata(t *testing.T) {
+	testIdentity := &MCPIdentity{
+		ProjectID:    "proj-meta",
+		VirtualKeyID: "vk-meta",
+		KeyPrefix:    "gw-meta",
+		Source:       "a2a",
+	}
+	h := testA2AHandlerWithResolver(t, &mockA2AKeyResolver{identity: testIdentity})
+
+	req := httptest.NewRequest(http.MethodPost, "/a2a", nil)
+	req.Header.Set("Authorization", "Bearer gw-testkey1234567890abcdef")
+	req.Header.Set("Content-Type", "application/json")
+	body := `{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":{"role":"user","parts":[{"type":"text","text":"hello"}]},"returnImmediately":true}}`
+	req.Body = io.NopCloser(strings.NewReader(body))
+
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+
+	// Verify the task was created with governance identity in metadata
+	tasks, _, _ := h.store.List(TaskListFilter{Limit: 10})
+	if len(tasks) == 0 {
+		t.Fatal("no tasks created")
+	}
+	task := tasks[0]
+	govID, ok := task.Metadata["governance_identity"]
+	if !ok {
+		t.Fatal("governance_identity not found in task metadata")
+	}
+	idp, ok := govID.(IdentityProvider)
+	if !ok {
+		t.Fatalf("governance_identity is %T, want IdentityProvider", govID)
+	}
+	if idp.GetVirtualKeyID() != "vk-meta" {
+		t.Errorf("VirtualKeyID = %q, want %q", idp.GetVirtualKeyID(), "vk-meta")
+	}
+}
+
+// TEST-24-03-07: Virtual_key mode without resolver returns 401
+func TestAuthenticate_VirtualKey_NoResolver(t *testing.T) {
+	// Handler with virtual_key mode but no resolver set
+	h := testA2AHandlerWithResolver(t, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/a2a", nil)
+	req.Header.Set("Authorization", "Bearer gw-testkey1234567890abcdef")
+
+	_, ok := h.authenticate(req)
+	if ok {
+		t.Fatal("expected auth failure when no resolver configured")
 	}
 }

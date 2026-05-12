@@ -48,16 +48,22 @@ func CreateVirtualKey(ctx context.Context, db Queryer, key *VirtualKey) error {
 }
 
 // ListVirtualKeys returns keys for a project, ordered by creation time.
-func ListVirtualKeys(ctx context.Context, db Queryer, projectID string) ([]VirtualKey, error) {
-	rows, err := db.QueryContext(ctx,
-		`SELECT id, project_id, key_prefix, name, allowed_models, allowed_providers, allowed_tools,
+// offset and limit control SQL-level pagination (use 0, 0 for no pagination).
+func ListVirtualKeys(ctx context.Context, db Queryer, projectID string, offset, limit int) ([]VirtualKey, error) {
+	query := `SELECT id, project_id, key_prefix, name, allowed_models, allowed_providers, allowed_tools,
 		        rpm_limit, tpm_limit, budget_limit_usd, budget_period,
 		        expires_at, revoked_at, created_at, allow_mcp_server, mcp_tool_name
 		 FROM virtual_keys
 		 WHERE ($1 = '' OR project_id = $1)
-		 ORDER BY created_at DESC`,
-		projectID,
-	)
+		 ORDER BY created_at DESC`
+	args := []any{projectID}
+
+	if limit > 0 {
+		query += ` LIMIT $2 OFFSET $3`
+		args = append(args, limit, offset)
+	}
+
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -216,6 +222,16 @@ func LookupVirtualKeyByToken(ctx context.Context, db Queryer, token string) (*Vi
 	}
 	return nil, fmt.Errorf("no matching virtual key found")
 }
+// CountVirtualKeys returns the total number of keys matching the project filter.
+func CountVirtualKeys(ctx context.Context, db Queryer, projectID string) (int, error) {
+	var count int
+	err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM virtual_keys WHERE ($1 = '' OR project_id = $1)`,
+		projectID,
+	).Scan(&count)
+	return count, err
+}
+
 // fieldNameRegex validates that SQL field names contain only safe characters.
 var fieldNameRegex = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
 
@@ -328,10 +344,21 @@ func UpdateVirtualKey(ctx context.Context, db Queryer, id string, updates map[st
 }
 
 func arrayString(items []string) any {
-	if len(items) == 0 {
+	if items == nil || len(items) == 0 {
 		return "{}"
 	}
-	return "{" + strings.Join(items, ",") + "}"
+
+	escaped := make([]string, len(items))
+	for i, item := range items {
+		if strings.ContainsAny(item, "{},\"") {
+			// Escape internal double-quotes as \"
+			eitem := strings.ReplaceAll(item, "\"", "\\\"")
+			escaped[i] = "\"" + eitem + "\""
+		} else {
+			escaped[i] = item
+		}
+	}
+	return "{" + strings.Join(escaped, ",") + "}"
 }
 
 // parseArrayString parses a Postgres text array literal like {a,b,c} into a Go slice.
@@ -402,14 +429,50 @@ func parseArrayString(s string) []string {
 	if s == "" {
 		return nil
 	}
-	raw := strings.Split(s, ",")
-	// Filter empty strings
-	result := make([]string, 0, len(raw))
-	for _, item := range raw {
-		if item != "" {
-			result = append(result, item)
+
+	var result []string
+	var buf strings.Builder
+	inQuotes := false
+
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if inQuotes {
+			if ch == '"' {
+				// Check for escaped quote
+				if i+1 < len(s) && s[i+1] == '"' {
+					buf.WriteByte('"')
+					i++ // skip next quote
+				} else {
+					inQuotes = false
+				}
+			} else if ch == '\\' && i+1 < len(s) && s[i+1] == '"' {
+				// Backslash-escaped quote: \" → "
+				buf.WriteByte('"')
+				i++
+			} else {
+				buf.WriteByte(ch)
+			}
+		} else {
+			if ch == '"' {
+				inQuotes = true
+			} else if ch == ',' {
+				item := buf.String()
+				if item != "" {
+					result = append(result, item)
+				}
+				buf.Reset()
+			} else {
+				buf.WriteByte(ch)
+			}
 		}
 	}
+
+	// Flush last element
+	item := buf.String()
+	if item != "" {
+		result = append(result, item)
+	}
+
 	if len(result) == 0 {
 		return nil
 	}

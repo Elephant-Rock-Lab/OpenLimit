@@ -207,6 +207,17 @@ The webhook stage sends a POST to an external service with the request or respon
 - **Input guardrails** apply to streaming requests (content is available before the provider call)
 - **Output guardrails** cannot inspect streaming responses — they only apply to non-streaming requests
 
+### A2A governance
+
+A2A (Agent-to-Agent) requests support full per-key governance when using `virtual_key` authentication mode:
+
+- **Rate limits** — RPM/TPM enforced per virtual key
+- **Budgets** — Daily/monthly spend caps enforced
+- **Model restrictions** — `allowed_models` and `allowed_providers` enforced
+- **Usage logging** — Token usage and cost recorded per virtual key
+
+With `bearer_token` or `none` authentication modes, A2A applies guardrails only (no per-key governance).
+
 ### Guardrail block response
 
 ```json

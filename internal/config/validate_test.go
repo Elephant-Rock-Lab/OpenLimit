@@ -157,6 +157,145 @@ func TestValidate_VertexRequiresProject(t *testing.T) {
 	}
 }
 
+// TEST-21-01-01: Cohere config without base_url gets correct default (https://api.cohere.com/v2)
+func TestValidate_CohereDefaultBaseURL(t *testing.T) {
+	cfg := Default()
+	cfg.Providers["cohere-provider"] = ProviderConfig{
+		Type: "cohere",
+		Keys: []ProviderKeyConfig{
+			{ID: "key1", Value: "test-key"},
+		},
+	}
+	cfg.Models["command-r"] = ModelConfig{
+		Routes: []ModelRoute{
+			{Provider: "cohere-provider", Model: "command-r", Weight: 1},
+		},
+	}
+
+	err := Validate(cfg)
+	if err != nil {
+		t.Fatalf("expected no validation error, got %v", err)
+	}
+
+	actual := cfg.Providers["cohere-provider"].BaseURL
+	expected := "https://api.cohere.com/v2"
+	if actual != expected {
+		t.Errorf("expected Cohere BaseURL to default to %q, got %q", expected, actual)
+	}
+}
+
+// TEST-21-01-02: Cohere config WITH explicit base_url preserves user value
+func TestValidate_CohereExplicitBaseURL(t *testing.T) {
+	cfg := Default()
+	userURL := "https://custom-cohere.example.com/v2"
+	cfg.Providers["cohere-provider"] = ProviderConfig{
+		Type:    "cohere",
+		BaseURL: userURL,
+		Keys: []ProviderKeyConfig{
+			{ID: "key1", Value: "test-key"},
+		},
+	}
+	cfg.Models["command-r"] = ModelConfig{
+		Routes: []ModelRoute{
+			{Provider: "cohere-provider", Model: "command-r", Weight: 1},
+		},
+	}
+
+	err := Validate(cfg)
+	if err != nil {
+		t.Fatalf("expected no validation error, got %v", err)
+	}
+
+	actual := cfg.Providers["cohere-provider"].BaseURL
+	if actual != userURL {
+		t.Errorf("expected Cohere BaseURL to preserve user value %q, got %q", userURL, actual)
+	}
+}
+
+func TestValidate_MultipleErrors_FormattedAsNumberedList(t *testing.T) {
+	cfg := Default()
+	cfg.Server.Port = 0 // invalid: must be 1-65535
+	cfg.Providers["bad-type"] = ProviderConfig{
+		Type: "unsupported",
+		Keys: []ProviderKeyConfig{{ID: "k1", Value: "test"}},
+	}
+	cfg.Models["m"] = ModelConfig{
+		Routes: []ModelRoute{{Provider: "bad-type", Model: "m", Weight: 1}},
+	}
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("expected validation error for multiple issues")
+	}
+	msg := err.Error()
+	if !containsSubstr(msg, "1. ") {
+		t.Errorf("expected numbered list with '1. ', got: %s", msg)
+	}
+	if !containsSubstr(msg, "2. ") {
+		t.Errorf("expected numbered list with '2. ', got: %s", msg)
+	}
+}
+
+func TestValidate_SingleError_NoNumber(t *testing.T) {
+	cfg := Default()
+	cfg.Server.Port = 0 // invalid
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("expected validation error for invalid port")
+	}
+	msg := err.Error()
+	if containsSubstr(msg, "1. ") {
+		t.Errorf("single error should not be numbered, got: %s", msg)
+	}
+}
+
+// TestValidateAdminEnabledNoAuth verifies that admin.enabled=true with no auth method configured returns an error.
+func TestValidateAdminEnabledNoAuth(t *testing.T) {
+	cfg := Default()
+	cfg.Admin.Enabled = true
+	cfg.Admin.BearerToken = ""
+	cfg.Admin.OIDC.Enabled = false
+	cfg.Database.URL = "postgres://localhost/test" // satisfy DB check
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("expected validation error for admin with no auth, got nil")
+	}
+	expected := "admin is enabled but no authentication method is configured"
+	if !containsSubstr(err.Error(), expected) {
+		t.Errorf("expected error to contain %q, got %q", expected, err.Error())
+	}
+}
+
+// TestValidateAdminEnabledWithBearerToken_NoError verifies that admin.enabled=true with a bearer token passes validation.
+func TestValidateAdminEnabledWithBearerToken_NoError(t *testing.T) {
+	cfg := Default()
+	cfg.Admin.Enabled = true
+	cfg.Admin.BearerToken = "secret-token"
+	cfg.Admin.OIDC.Enabled = false
+	cfg.Database.URL = "postgres://localhost/test"
+
+	err := Validate(cfg)
+	if err != nil {
+		t.Fatalf("expected no validation error, got %v", err)
+	}
+}
+
+// TestValidateAdminEnabledWithOIDC_NoError verifies that admin.enabled=true with OIDC enabled passes validation.
+func TestValidateAdminEnabledWithOIDC_NoError(t *testing.T) {
+	cfg := Default()
+	cfg.Admin.Enabled = true
+	cfg.Admin.BearerToken = ""
+	cfg.Admin.OIDC.Enabled = true
+	cfg.Database.URL = "postgres://localhost/test"
+
+	err := Validate(cfg)
+	if err != nil {
+		t.Fatalf("expected no validation error, got %v", err)
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstr(s, substr))
 }

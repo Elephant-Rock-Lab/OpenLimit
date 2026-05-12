@@ -5,7 +5,7 @@ import io
 from unittest.mock import MagicMock, patch
 import pytest
 
-from openlimit import OpenLimitClient, APIError, TimeoutError
+from openlimit import OpenLimitClient, APIError, TimeoutError, ResponseHeaders
 from openlimit.types import (
     ChatCompletionRequest,
     ChatCompletionResponse,
@@ -23,10 +23,11 @@ def make_client() -> OpenLimitClient:
     )
 
 
-def mock_response(status: int, body: dict) -> MagicMock:
+def mock_response(status: int, body: dict, headers: list[tuple[str, str]] | None = None) -> MagicMock:
     resp = MagicMock()
     resp.status = status
     resp.read.return_value = json.dumps(body).encode("utf-8")
+    resp.getheaders.return_value = headers or []
     return resp
 
 
@@ -193,3 +194,129 @@ class TestErrorHandling:
         assert exc_info.value.status == 401
         assert exc_info.value.error_type == "authentication_error"
         assert exc_info.value.request_id == "req-123"
+
+
+# ── TEST-22-04-01: chat_completion() returns response with headers ────
+
+class TestChatCompletionHeaders:
+    @patch("openlimit.client.http.client.HTTPConnection")
+    def test_returns_response_with_headers(self, mock_conn_cls):
+        mock_conn = MagicMock()
+        mock_conn_cls.return_value = mock_conn
+        mock_conn.getresponse.return_value = mock_response(200, {
+            "id": "chatcmpl-hdr",
+            "object": "chat.completion",
+            "created": 1234567890,
+            "model": "gpt-4",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "Hello!"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+        }, headers=[
+            ("X-Provider", "openai"),
+            ("X-Cache", "MISS"),
+            ("X-Cost-USD", "0.000450"),
+            ("X-RateLimit-Limit", "1000"),
+            ("X-RateLimit-Remaining", "999"),
+            ("X-RateLimit-Reset", "1700000000"),
+            ("X-Request-ID", "req-abc-123"),
+        ])
+
+        client = make_client()
+        result = client.chat_completion(ChatCompletionRequest(
+            model="gpt-4",
+            messages=[ChatMessage(role="user", content="Hi")],
+        ))
+
+        assert result.id == "chatcmpl-hdr"
+        assert result.headers is not None
+        assert result.headers.x_provider == "openai"
+        assert result.headers.x_cache == "MISS"
+        assert result.headers.x_cost_usd == "0.000450"
+        assert result.headers.x_ratelimit_limit == "1000"
+        assert result.headers.x_ratelimit_remaining == "999"
+        assert result.headers.x_ratelimit_reset == "1700000000"
+        assert result.headers.x_request_id == "req-abc-123"
+
+
+# ── TEST-22-04-02: embeddings() returns response with headers ─────────
+
+class TestEmbeddingsHeaders:
+    @patch("openlimit.client.http.client.HTTPConnection")
+    def test_returns_response_with_headers(self, mock_conn_cls):
+        mock_conn = MagicMock()
+        mock_conn_cls.return_value = mock_conn
+        mock_conn.getresponse.return_value = mock_response(200, {
+            "object": "list",
+            "data": [{"object": "embedding", "embedding": [0.1, 0.2, 0.3], "index": 0}],
+            "model": "text-embedding-3-small",
+            "usage": {"prompt_tokens": 5, "completion_tokens": 0, "total_tokens": 5},
+        }, headers=[
+            ("X-Provider", "openai"),
+            ("X-Cache", "HIT"),
+            ("X-Cost-USD", "0.000010"),
+            ("X-RateLimit-Limit", "500"),
+            ("X-RateLimit-Remaining", "499"),
+            ("X-RateLimit-Reset", "1700000001"),
+            ("X-Request-ID", "req-emb-456"),
+        ])
+
+        client = make_client()
+        result = client.embeddings(EmbeddingsRequest(
+            model="text-embedding-3-small",
+            input="Hello world",
+        ))
+
+        assert len(result.data) == 1
+        assert result.headers is not None
+        assert result.headers.x_provider == "openai"
+        assert result.headers.x_cache == "HIT"
+        assert result.headers.x_cost_usd == "0.000010"
+        assert result.headers.x_ratelimit_limit == "500"
+        assert result.headers.x_ratelimit_remaining == "499"
+        assert result.headers.x_ratelimit_reset == "1700000001"
+        assert result.headers.x_request_id == "req-emb-456"
+
+
+# ── TEST-22-04-03: No X-* headers → all None fields ──────────────────
+
+class TestNoHeaders:
+    @patch("openlimit.client.http.client.HTTPConnection")
+    def test_no_headers_all_none(self, mock_conn_cls):
+        mock_conn = MagicMock()
+        mock_conn_cls.return_value = mock_conn
+        # Response with no X-* headers (empty header list)
+        mock_conn.getresponse.return_value = mock_response(200, {
+            "id": "chatcmpl-nohdr",
+            "object": "chat.completion",
+            "created": 1234567890,
+            "model": "gpt-4",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "Hi"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8},
+        }, headers=[])
+
+        client = make_client()
+        result = client.chat_completion(ChatCompletionRequest(
+            model="gpt-4",
+            messages=[ChatMessage(role="user", content="Hi")],
+        ))
+
+        assert result.id == "chatcmpl-nohdr"
+        assert result.headers is not None
+        assert result.headers.x_provider is None
+        assert result.headers.x_cache is None
+        assert result.headers.x_cost_usd is None
+        assert result.headers.x_ratelimit_limit is None
+        assert result.headers.x_ratelimit_remaining is None
+        assert result.headers.x_ratelimit_reset is None
+        assert result.headers.x_request_id is None
