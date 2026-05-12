@@ -7,8 +7,9 @@ import (
 
 // KeyCacheEntry holds a cached auth context and its expiration.
 type KeyCacheEntry struct {
-	authCtx   *Context
-	expiresAt time.Time
+	authCtx    *Context
+	expiresAt  time.Time
+	lastAccess time.Time
 }
 
 // KeyCache is a simple LRU-like cache for virtual key lookups.
@@ -30,9 +31,10 @@ func NewKeyCache(maxSize int, ttl time.Duration) *KeyCache {
 }
 
 // Get retrieves a cached auth context by key hash.
+// Uses write lock to safely update lastAccess for LRU tracking.
 func (c *KeyCache) Get(keyHash string) (*Context, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	entry, ok := c.entries[keyHash]
 	if !ok {
@@ -41,6 +43,7 @@ func (c *KeyCache) Get(keyHash string) (*Context, bool) {
 	if time.Now().After(entry.expiresAt) {
 		return nil, false
 	}
+	entry.lastAccess = time.Now()
 	return entry.authCtx, true
 }
 
@@ -57,18 +60,29 @@ func (c *KeyCache) Set(keyHash string, authCtx *Context) {
 				delete(c.entries, k)
 			}
 		}
-		// If still at capacity, remove oldest (simple random eviction for now)
+		// If still at capacity, remove the entry with the oldest lastAccess (LRU eviction)
 		if len(c.entries) >= c.maxSize {
-			for k := range c.entries {
-				delete(c.entries, k)
-				break
+			var oldest string
+			var oldestTime time.Time
+			first := true
+			for k, v := range c.entries {
+				if first || v.lastAccess.Before(oldestTime) {
+					oldest = k
+					oldestTime = v.lastAccess
+					first = false
+				}
+			}
+			if oldest != "" {
+				delete(c.entries, oldest)
 			}
 		}
 	}
 
+	now := time.Now()
 	c.entries[keyHash] = &KeyCacheEntry{
-		authCtx:   authCtx,
-		expiresAt: time.Now().Add(c.ttl),
+		authCtx:    authCtx,
+		expiresAt:  now.Add(c.ttl),
+		lastAccess: now,
 	}
 }
 
@@ -77,6 +91,24 @@ func (c *KeyCache) Invalidate(keyHash string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	delete(c.entries, keyHash)
+}
+
+// GetWithGrace retrieves a cached auth context allowing entries that expired
+// within the given grace duration. This is used as a fallback when the database
+// is unavailable.
+func (c *KeyCache) GetWithGrace(keyHash string, grace time.Duration) (*Context, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	entry, ok := c.entries[keyHash]
+	if !ok {
+		return nil, false
+	}
+	// Allow entries expired within the grace period
+	if time.Now().After(entry.expiresAt.Add(grace)) {
+		return nil, false
+	}
+	return entry.authCtx, true
 }
 
 // Clear removes all cached entries.

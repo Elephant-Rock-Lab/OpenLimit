@@ -3,7 +3,9 @@ package admin
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"log/slog"
 	"net/http"
+	"strconv"
 
 	"golang.org/x/crypto/bcrypt"
 
@@ -55,6 +57,10 @@ func (h *Handler) createKey(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.BudgetPeriod == "" {
 		req.BudgetPeriod = "monthly"
+	}
+	if req.BudgetLimitUSD < 0 {
+		writeAdminError(w, r, http.StatusBadRequest, "invalid_request", "budget_limit_usd must be non-negative")
+		return
 	}
 
 	// Generate random key: gw- + 32 hex chars
@@ -113,7 +119,14 @@ func (h *Handler) createKey(w http.ResponseWriter, r *http.Request) {
 
 	// Notify MCP server clients that tools may have changed
 	if h.OnKeysChanged != nil {
-		go h.OnKeysChanged()
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Default().Error("panic in OnKeysChanged", "error", r)
+					}
+				}()
+			h.OnKeysChanged()
+		}()
 	}
 }
 
@@ -133,6 +146,29 @@ func (h *Handler) listKeys(w http.ResponseWriter, r *http.Request) {
 	if keys == nil {
 		keys = []store.VirtualKey{}
 	}
+
+	// BATCH-29 TASK-01: Server-side pagination
+	totalCount := len(keys)
+	offset := 0
+	limit := 100 // default matches pre-pagination behavior
+	if o, err := strconv.Atoi(r.URL.Query().Get("offset")); err == nil && o >= 0 {
+		offset = o
+	}
+	if l, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && l > 0 && l <= 1000 {
+		limit = l
+	}
+
+	// Apply offset and limit
+	if offset > len(keys) {
+		keys = keys[:0]
+	} else {
+		keys = keys[offset:]
+	}
+	if len(keys) > limit {
+		keys = keys[:limit]
+	}
+
+	w.Header().Set("X-Total-Count", strconv.Itoa(totalCount))
 	writeAdminJSON(w, http.StatusOK, keys)
 }
 
@@ -171,7 +207,14 @@ func (h *Handler) revokeKey(w http.ResponseWriter, r *http.Request) {
 
 	// Notify MCP server clients that tools may have changed
 	if h.OnKeysChanged != nil {
-		go h.OnKeysChanged()
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Default().Error("panic in OnKeysChanged", "error", r)
+					}
+				}()
+			h.OnKeysChanged()
+		}()
 	}
 }
 
@@ -224,20 +267,9 @@ func (h *Handler) updateKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Return the updated key.
-	keys, err := store.ListVirtualKeys(r.Context(), h.db, "")
+	// BATCH-30 BN-02: Direct SELECT by ID instead of ListVirtualKeys scan.
+	updated, err := store.GetVirtualKeyByID(r.Context(), h.db, id)
 	if err != nil {
-		writeAdminJSON(w, http.StatusOK, map[string]string{"status": "updated"})
-		return
-	}
-	var updated *store.VirtualKey
-	for i := range keys {
-		if keys[i].ID == id {
-			updated = &keys[i]
-			break
-		}
-	}
-	if updated == nil {
 		writeAdminJSON(w, http.StatusOK, map[string]string{"status": "updated"})
 		return
 	}
@@ -255,7 +287,14 @@ func (h *Handler) updateKey(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if h.OnKeysChanged != nil {
-		go h.OnKeysChanged()
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Default().Error("panic in OnKeysChanged", "error", r)
+					}
+				}()
+			h.OnKeysChanged()
+		}()
 	}
 }
 
@@ -299,20 +338,9 @@ func (h *Handler) patchKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Return the updated key.
-	keys, err := store.ListVirtualKeys(r.Context(), h.db, "")
+	// BATCH-30 BN-02: Direct SELECT by ID instead of ListVirtualKeys scan.
+	updated, err := store.GetVirtualKeyByID(r.Context(), h.db, id)
 	if err != nil {
-		writeAdminJSON(w, http.StatusOK, map[string]string{"status": "updated"})
-		return
-	}
-	var updated *store.VirtualKey
-	for i := range keys {
-		if keys[i].ID == id {
-			updated = &keys[i]
-			break
-		}
-	}
-	if updated == nil {
 		writeAdminJSON(w, http.StatusOK, map[string]string{"status": "updated"})
 		return
 	}
@@ -330,7 +358,14 @@ func (h *Handler) patchKey(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if h.OnKeysChanged != nil {
-		go h.OnKeysChanged()
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Default().Error("panic in OnKeysChanged", "error", r)
+					}
+				}()
+			h.OnKeysChanged()
+		}()
 	}
 }
 
@@ -341,4 +376,72 @@ func generateKey() (string, error) {
 		return "", err
 	}
 	return "gw-" + hex.EncodeToString(buf), nil
+}
+
+func (h *Handler) rotateKey(w http.ResponseWriter, r *http.Request) {
+	actor := h.requireRole(w, r, "key:update")
+	if actor == nil {
+		return
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		writeAdminError(w, r, http.StatusBadRequest, "invalid_request", "key id is required")
+		return
+	}
+
+	// Generate new key
+	rawKey, err := generateKey()
+	if err != nil {
+		writeAdminError(w, r, http.StatusInternalServerError, "internal_error", "failed to generate key")
+		return
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(rawKey), bcrypt.DefaultCost)
+	if err != nil {
+		writeAdminError(w, r, http.StatusInternalServerError, "internal_error", "failed to hash key")
+		return
+	}
+
+	vk, raw, err := store.RotateVirtualKey(r.Context(), h.db, id, rawKey, hash)
+	if err != nil {
+		if err == store.ErrNotFound {
+			writeAdminError(w, r, http.StatusNotFound, "not_found", "key not found")
+			return
+		}
+		if err.Error() == "key is revoked" {
+			writeAdminError(w, r, http.StatusBadRequest, "invalid_request", "key is revoked")
+			return
+		}
+		writeAdminError(w, r, http.StatusInternalServerError, "internal_error", "failed to rotate key")
+		return
+	}
+
+	writeAdminJSON(w, http.StatusOK, createKeyResponse{
+		ID:        vk.ID,
+		Key:       raw,
+		KeyPrefix: vk.KeyPrefix,
+		Name:      vk.Name,
+		ProjectID: vk.ProjectID,
+	})
+
+	h.audit.Record(audit.Event{
+		EventType: audit.EventKeyRotate,
+		Actor:     actorFromRequest(r),
+		Action:    "rotate",
+		Resource:  "key:" + id,
+		Outcome:   "success",
+		RequestID: requestid.FromContext(r.Context()),
+	})
+
+	if h.OnKeysChanged != nil {
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Default().Error("panic in OnKeysChanged", "error", r)
+					}
+				}()
+			h.OnKeysChanged()
+		}()
+	}
 }

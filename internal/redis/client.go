@@ -31,6 +31,7 @@ type UniversalClient interface {
 	Set(ctx context.Context, key string, value interface{}, ttl time.Duration) *goredis.StatusCmd
 	HSet(ctx context.Context, key string, values ...interface{}) *goredis.IntCmd
 	HGetAll(ctx context.Context, key string) *goredis.MapStringStringCmd
+	HIncrBy(ctx context.Context, key, field string, incr int64) *goredis.IntCmd
 	ZAdd(ctx context.Context, key string, members ...goredis.Z) *goredis.IntCmd
 	ZRemRangeByScore(ctx context.Context, key, min, max string) *goredis.IntCmd
 	ZCard(ctx context.Context, key string) *goredis.IntCmd
@@ -173,6 +174,11 @@ func (c *Client) HSet(ctx context.Context, key string, values ...interface{}) er
 // HGetAll returns all hash fields.
 func (c *Client) HGetAll(ctx context.Context, key string) (map[string]string, error) {
 	return c.client.HGetAll(ctx, key).Result()
+}
+
+// HIncrBy atomically increments a hash field by the given value.
+func (c *Client) HIncrBy(ctx context.Context, key, field string, incr int64) (int64, error) {
+	return c.client.HIncrBy(ctx, key, field, incr).Result()
 }
 
 // ZAdd adds a member to a sorted set.
