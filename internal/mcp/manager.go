@@ -11,9 +11,10 @@ import (
 
 // serverState tracks the connection state of an MCP server.
 type serverState struct {
-	name      string
-	client    *Client
-	config    config.MCPServerConfig
+	mu       sync.Mutex
+	name     string
+	client   *Client
+	config   config.MCPServerConfig
 	connected bool
 	lastPing  time.Time
 	lastError error
@@ -233,22 +234,28 @@ func (m *Manager) checkAllServers(ctx context.Context) {
 		cancel()
 
 		if err != nil {
+			state.mu.Lock()
 			m.logger.Warn("MCP server ping failed, marking disconnected",
 				"server", state.name,
 				"error", err,
 			)
 			state.connected = false
 			state.lastError = err
+			state.mu.Unlock()
 			m.registry.RemoveServerTools(state.name)
 		} else {
+			state.mu.Lock()
 			state.lastPing = time.Now()
 			state.lastError = nil
+			state.mu.Unlock()
 		}
 	}
 }
 
 // tryReconnect attempts to reconnect a disconnected server with exponential backoff.
 func (m *Manager) tryReconnect(ctx context.Context, state *serverState) {
+	state.mu.Lock()
+
 	prefix := state.config.ToolPrefix
 	if prefix == "" {
 		prefix = state.config.Name
@@ -263,14 +270,20 @@ func (m *Manager) tryReconnect(ctx context.Context, state *serverState) {
 
 	if err := client.Initialize(ctx); err != nil {
 		state.lastError = err
+		state.mu.Unlock()
 		return // Will retry on next health check cycle
 	}
 
-	state.client.Close() // close old client
+	oldClient := state.client
 	state.client = client
 	state.connected = true
 	state.lastPing = time.Now()
 	state.lastError = nil
+	state.mu.Unlock() // Unlock before calling ReplaceServerTools and starting goroutine
+
+	if oldClient != nil {
+		oldClient.Close() // close old client outside lock
+	}
 
 	tools := client.Tools()
 	m.registry.ReplaceServerTools(state.config.Name, tools)
