@@ -67,3 +67,15 @@ func GetProject(ctx context.Context, db Queryer, id string) (*Project, error) {
 	}
 	return p, nil
 }
+
+// GetProjectByName fetches a project by name. Returns nil if not found.
+func GetProjectByName(ctx context.Context, db Queryer, name string) (*Project, error) {
+	p := &Project{}
+	err := db.QueryRowContext(ctx,
+		"SELECT id, name, created_at FROM projects WHERE name = $1", name,
+	).Scan(&p.ID, &p.Name, &p.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return p, nil
+}

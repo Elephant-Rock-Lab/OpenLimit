@@ -8,8 +8,9 @@ import type {
   ModelsResponse,
   HealthResponse,
   ErrorResponse,
+  ResponseHeaders,
 } from './types';
-import { APIError, TimeoutError } from './errors';
+import { APIError, TimeoutError, NetworkError } from './errors';
 import { parseSSEResponse } from './streaming';
 
 const DEFAULT_TIMEOUT = 30_000;
@@ -40,11 +41,15 @@ export class OpenLimitClient {
     req: ChatCompletionRequest,
   ): Promise<ChatCompletionResponse> {
     const body = { ...req, stream: false };
-    return this.request<ChatCompletionResponse>(
-      'POST',
-      '/v1/chat/completions',
-      body,
-    );
+    const response = await this.fetchRaw('POST', '/v1/chat/completions', body);
+
+    if (!response.ok) {
+      await this.handleError(response);
+    }
+
+    const data = (await response.json()) as ChatCompletionResponse;
+    data.headers = this.extractHeaders(response);
+    return data;
   }
 
   /**
@@ -74,7 +79,15 @@ export class OpenLimitClient {
    * Create embeddings for the given input.
    */
   async embeddings(req: EmbeddingsRequest): Promise<EmbeddingsResponse> {
-    return this.request<EmbeddingsResponse>('POST', '/v1/embeddings', req);
+    const response = await this.fetchRaw('POST', '/v1/embeddings', req);
+
+    if (!response.ok) {
+      await this.handleError(response);
+    }
+
+    const data = (await response.json()) as EmbeddingsResponse;
+    data.headers = this.extractHeaders(response);
+    return data;
   }
 
   // ── Models ────────────────────────────────────────────
@@ -138,10 +151,28 @@ export class OpenLimitClient {
       if (err instanceof DOMException && err.name === 'AbortError') {
         throw new TimeoutError(this.timeout);
       }
-      throw err;
+      throw new NetworkError(err instanceof Error ? err : new Error(String(err)));
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /**
+   * Extract operational X-* headers from a fetch Response.
+   */
+  private extractHeaders(response: Response): ResponseHeaders {
+    const get = (name: string): string | undefined =>
+      response.headers.get(name) ?? undefined;
+
+    return {
+      'X-Provider': get('X-Provider'),
+      'X-Cache': get('X-Cache'),
+      'X-Cost-USD': get('X-Cost-USD'),
+      'X-RateLimit-Limit': get('X-RateLimit-Limit'),
+      'X-RateLimit-Remaining': get('X-RateLimit-Remaining'),
+      'X-RateLimit-Reset': get('X-RateLimit-Reset'),
+      'X-Request-ID': get('X-Request-ID'),
+    };
   }
 
   private async handleError(response: Response): Promise<never> {

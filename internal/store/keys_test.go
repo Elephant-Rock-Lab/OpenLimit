@@ -192,3 +192,98 @@ func TestListVirtualKeysForMCP_NonExpiredKeyIncluded(t *testing.T) {
 	// Integration tests with a real DB confirm actual behavior.
 	_ = ListVirtualKeysForMCP
 }
+
+// ---------------------------------------------------------------------------
+// BATCH-61 / TASK-01: SQL pagination + CountVirtualKeys
+// ---------------------------------------------------------------------------
+
+// TEST-61-01-01: ListVirtualKeys accepts offset/limit (compile-time signature check).
+// SQL pagination is verified via integration tests with a real DB.
+// This test confirms the function signature includes offset/limit.
+func TestListVirtualKeys_AcceptsOffsetLimit(t *testing.T) {
+	// Verify function signature: func ListVirtualKeys(ctx, db, projectID, offset, limit)
+	var _ func(context.Context, Queryer, string, int, int) ([]VirtualKey, error) = ListVirtualKeys
+}
+
+// TEST-61-01-02: CountVirtualKeys function exists with correct signature.
+func TestCountVirtualKeys_Exists(t *testing.T) {
+	var _ func(context.Context, Queryer, string) (int, error) = CountVirtualKeys
+}
+
+// ---------------------------------------------------------------------------
+// BATCH-61 / TASK-02: parseArrayString quoted commas + arrayString escaping
+// ---------------------------------------------------------------------------
+
+// TEST-61-02-01: parseArrayString handles quoted commas — {a,"b,c",d} → 3 elements.
+func TestParseArrayString_QuotedCommas(t *testing.T) {
+	result := parseArrayString(`{a,"b,c",d}`)
+	if len(result) != 3 {
+		t.Fatalf("expected 3 elements, got %d: %v", len(result), result)
+	}
+	if result[0] != "a" {
+		t.Errorf("result[0] = %q, want %q", result[0], "a")
+	}
+	if result[1] != "b,c" {
+		t.Errorf("result[1] = %q, want %q", result[1], "b,c")
+	}
+	if result[2] != "d" {
+		t.Errorf("result[2] = %q, want %q", result[2], "d")
+	}
+}
+
+// TEST-61-02-02: parseArrayString handles nested braces inside quoted elements.
+func TestParseArrayString_NestedBraces(t *testing.T) {
+	result := parseArrayString(`{a,"{b}",c}`)
+	if len(result) != 3 {
+		t.Fatalf("expected 3 elements, got %d: %v", len(result), result)
+	}
+	if result[1] != "{b}" {
+		t.Errorf("result[1] = %q, want %q", result[1], "{b}")
+	}
+}
+
+// TEST-61-02-03: arrayString escapes commas + roundtrip through parseArrayString.
+func TestArrayString_EscapesAndRoundtrips(t *testing.T) {
+	items := []string{"a", "b,c", "d"}
+	encoded := arrayString(items)
+	encodedStr, ok := encoded.(string)
+	if !ok {
+		t.Fatalf("arrayString should return string, got %T", encoded)
+	}
+
+	// Verify encoding contains quoted comma
+	if encodedStr != `{a,"b,c",d}` {
+		t.Errorf("arrayString([a, b,c, d]) = %q, want %q", encodedStr, `{a,"b,c",d}`)
+	}
+
+	// Verify roundtrip: parseArrayString(arrayString(items)) == items
+	parsed := parseArrayString(encodedStr)
+	if len(parsed) != len(items) {
+		t.Fatalf("roundtrip: expected %d elements, got %d", len(items), len(parsed))
+	}
+	for i := range items {
+		if parsed[i] != items[i] {
+			t.Errorf("roundtrip[%d] = %q, want %q", i, parsed[i], items[i])
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// BATCH-61 / TASK-03: arrayString edge cases
+// ---------------------------------------------------------------------------
+
+// TEST-61-03-02: arrayString handles empty slice → "{}"
+func TestArrayString_EmptySlice(t *testing.T) {
+	result := arrayString([]string{})
+	if result != "{}" {
+		t.Errorf("arrayString([]string{}) = %v, want {}", result)
+	}
+}
+
+// TEST-61-03-03: arrayString handles nil → "{}"
+func TestArrayString_NilSlice(t *testing.T) {
+	result := arrayString(nil)
+	if result != "{}" {
+		t.Errorf("arrayString(nil) = %v, want {}", result)
+	}
+}

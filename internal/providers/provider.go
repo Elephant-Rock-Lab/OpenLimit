@@ -14,6 +14,10 @@ import (
 
 var ErrRetryable = errors.New("retryable provider error")
 
+// MaxProviderResponseSize is the maximum bytes read from any external provider
+// response body. Set to 50MB to prevent OOM from malicious or buggy providers.
+const MaxProviderResponseSize int64 = 50 << 20 // 50MB
+
 type Target struct {
 	Provider      string
 	Model         string
@@ -45,7 +49,7 @@ type MissingEnvKey struct {
 
 type KeyRing struct {
 	mu         sync.Mutex
-	next       int
+	next       uint64
 	keys       []ProviderKey
 	configured int
 	missingEnv []MissingEnvKey
@@ -92,7 +96,7 @@ func (r *KeyRing) Next() (ProviderKey, bool) {
 	if len(r.keys) == 0 {
 		return ProviderKey{}, false
 	}
-	key := r.keys[r.next%len(r.keys)]
+	key := r.keys[int(r.next%uint64(len(r.keys)))]
 	r.next++
 	return key, true
 }

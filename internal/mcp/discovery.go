@@ -21,7 +21,7 @@ func NewDBToolLister(db *sql.DB, logger *slog.Logger) ToolLister {
 
 	return func() ([]ToolDefinition, error) {
 		ctx := context.Background()
-		keys, err := store.ListVirtualKeys(ctx, db, "")
+		keys, err := store.ListVirtualKeys(ctx, db, "", 0, 0)
 		if err != nil {
 			l.Error("failed to list keys for tool discovery", "error", err)
 			return nil, fmt.Errorf("list keys: %w", err)

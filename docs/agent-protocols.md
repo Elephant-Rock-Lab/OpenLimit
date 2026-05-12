@@ -155,11 +155,13 @@ Duplicate tool names get a numeric suffix.
 
 ### Authentication modes
 
-| Mode | Description |
-|---|---|
-| `none` | No authentication — any client can connect |
-| `bearer_token` | Static token from config |
-| `virtual_key` | Clients authenticate with a virtual API key |
+| Mode | Description | Governance |
+|---|---|---|
+| `none` | No authentication — any client can connect | Guardrails only |
+| `bearer_token` | Static token from config | Guardrails only |
+| `virtual_key` | Clients authenticate with a virtual API key (`gw-...`) | **Full governance** (rate limits, budgets, model restrictions, usage logging) |
+
+When using `virtual_key` mode, each A2A agent uses its own virtual key. The gateway resolves the key to per-key governance parameters and enforces rate limits, budgets, model/provider restrictions, and usage logging — the same pipeline as direct API calls. This is the recommended mode for production deployments.
 
 ### MCP server admin endpoints
 
@@ -307,7 +309,7 @@ curl -X POST http://localhost:8080/a2a \
 
 ### A2A limitations
 
-- **Text parts only** — File and data parts in messages are ignored.
+- **Text parts in provider calls** — File and data parts are accepted in A2A messages but only text content is sent to the AI provider.
 - **No multi-turn** — Each `message/send` creates a new task with no context carry-over.
 - **Single default model** — No per-skill model routing.
 - **SSE is single-instance** — For multi-instance, clients should poll `tasks/get`.

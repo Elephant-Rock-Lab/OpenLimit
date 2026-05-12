@@ -8,6 +8,7 @@ const (
 	EventProjectDelete   = "project.delete"
 	EventKeyCreate       = "key.create"
 	EventKeyRevoke       = "key.revoke"
+	EventKeyRotate      = "key.rotate"
 	EventKeyUpdate       = "key.update"
 	EventKeyDecrypt      = "provider_key.decrypt"
 	EventAuthFailure     = "auth.failure"

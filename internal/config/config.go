@@ -21,6 +21,7 @@ type Config struct {
 	MCP        MCPConfig                 `yaml:"mcp"`
 	MCPServer  MCPServerModeConfig       `yaml:"mcp_server"`
 	A2A        A2AConfig                 `yaml:"a2a"`
+	Replay     ReplayConfig              `yaml:"replay"`
 	Routing    RoutingConfig             `yaml:"routing"`
 	Providers  map[string]ProviderConfig `yaml:"providers"`
 	Models     map[string]ModelConfig    `yaml:"models"`
@@ -90,7 +91,40 @@ type OIDCProviderConfig struct {
 }
 
 type BillingConfig struct {
-	Prices []PriceEntry `yaml:"prices"`
+	Prices       []PriceEntry `yaml:"prices"`
+	FailClosed   bool         `yaml:"fail_closed"` // when true, DB errors cause budget checks to reject requests
+}
+
+// DeepCopy creates a deep copy of the Config struct.
+// Map and slice fields are copied so mutations to the copy do not affect the original.
+func (c Config) DeepCopy() Config {
+	cp := c // shallow copy (value types copied)
+
+	// Deep copy maps
+	if c.Providers != nil {
+		cp.Providers = make(map[string]ProviderConfig, len(c.Providers))
+		for k, v := range c.Providers {
+			cp.Providers[k] = v // ProviderConfig is a value type (no pointers)
+		}
+	}
+	if c.Models != nil {
+		cp.Models = make(map[string]ModelConfig, len(c.Models))
+		for k, v := range c.Models {
+			cp.Models[k] = v // ModelConfig is a value type
+		}
+	}
+
+	// Deep copy slices
+	if c.Plugins != nil {
+		cp.Plugins = make([]PluginConfig, len(c.Plugins))
+		copy(cp.Plugins, c.Plugins)
+	}
+	if c.Billing.Prices != nil {
+		cp.Billing.Prices = make([]PriceEntry, len(c.Billing.Prices))
+		copy(cp.Billing.Prices, c.Billing.Prices)
+	}
+
+	return cp
 }
 
 type TelemetryConfig struct {
@@ -123,6 +157,7 @@ type ServerConfig struct {
 	WriteTimeoutMS  int    `yaml:"write_timeout_ms"`
 	IdleTimeoutMS   int    `yaml:"idle_timeout_ms"`
 	ShutdownTimeout int    `yaml:"shutdown_timeout_ms"`
+	MaxBodySizeKB   int    `yaml:"max_body_size_kb"`
 }
 
 type LoggingConfig struct {
@@ -187,6 +222,13 @@ type RoutingConfig struct {
 	Defaults       RouteDefaults `yaml:"defaults"`
 	Region         string        `yaml:"region"`          // gateway's own region, e.g., "us-east"
 	RegionStrategy string        `yaml:"region_strategy"` // "priority" (default) or "latency"
+	CostWeights    CostWeights   `yaml:"cost_weights"`
+}
+
+type CostWeights struct {
+	Cost    float64 `yaml:"cost"`
+	Latency float64 `yaml:"latency"`
+	Health  float64 `yaml:"health"`
 }
 
 type RouteDefaults struct {
@@ -299,6 +341,20 @@ func (c MCPServerModeConfig) ListenAddr() string {
 // A2AConfig configures the gateway's A2A server mode.
 // When enabled, external agents can discover and interact with the gateway
 // using the Agent-to-Agent (A2A) protocol v1.0 over JSON-RPC 2.0.
+// ReplayConfig configures shadow request replay for provider comparison.
+type ReplayConfig struct {
+	Enabled bool          `yaml:"enabled"`
+	Routes  []ReplayRoute `yaml:"routes"`
+}
+
+// ReplayRoute defines a shadow replay target for a specific model.
+type ReplayRoute struct {
+	Model          string  `yaml:"model"`
+	ShadowProvider string  `yaml:"shadow_provider"`
+	ShadowModel    string  `yaml:"shadow_model"`
+	SampleRate     float64 `yaml:"sample_rate"`
+}
+
 type A2AConfig struct {
 	Enabled        bool            `yaml:"enabled"`
 	Endpoint       string          `yaml:"endpoint"` // path ("/a2a") or separate port (":8082")

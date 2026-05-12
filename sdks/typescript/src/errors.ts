@@ -28,3 +28,15 @@ export class TimeoutError extends Error {
     this.name = 'TimeoutError';
   }
 }
+
+/**
+ * Error thrown when a network-level failure occurs (DNS, TCP, CORS, etc.).
+ */
+export class NetworkError extends Error {
+  public readonly cause: Error;
+  constructor(cause: Error) {
+    super(`Network error: ${cause.message}`);
+    this.name = 'NetworkError';
+    this.cause = cause;
+  }
+}

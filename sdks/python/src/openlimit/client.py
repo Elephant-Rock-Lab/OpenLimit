@@ -16,8 +16,10 @@ from .types import (
     EmbeddingsResponse,
     ModelsResponse,
     HealthResponse,
+    ResponseHeaders,
     _parse_chat_response,
     _parse_embeddings,
+    _parse_headers,
     _parse_models,
 )
 from .errors import APIError, TimeoutError
@@ -64,7 +66,9 @@ class OpenLimitClient:
         if req.data_residency:
             body["data_residency"] = req.data_residency
 
-        data = self._request("POST", "/v1/chat/completions", body)
+        data, raw_headers = self._request("POST", "/v1/chat/completions", body)
+        headers = _parse_headers(raw_headers)
+        data["_headers"] = headers
         return _parse_chat_response(data)
 
     def chat_completion_stream(
@@ -88,21 +92,23 @@ class OpenLimitClient:
         if req.dimensions:
             body["dimensions"] = req.dimensions
 
-        data = self._request("POST", "/v1/embeddings", body)
+        data, raw_headers = self._request("POST", "/v1/embeddings", body)
+        headers = _parse_headers(raw_headers)
+        data["_headers"] = headers
         return _parse_embeddings(data)
 
     # ── Models ────────────────────────────────────────
 
     def models(self) -> ModelsResponse:
         """List available models."""
-        data = self._request("GET", "/v1/models")
+        data, _ = self._request("GET", "/v1/models")
         return _parse_models(data)
 
     # ── Health ────────────────────────────────────────
 
     def health(self) -> HealthResponse:
         """Check gateway health (no auth required)."""
-        data = self._request("GET", "/health", auth=False)
+        data, _ = self._request("GET", "/health", auth=False)
         return HealthResponse(
             status=data.get("status", ""),
             version=data.get("version"),
@@ -132,7 +138,7 @@ class OpenLimitClient:
 
     def _request(
         self, method: str, path: str, body: Any = None, auth: bool = True
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], dict[str, str]]:
         headers = dict(self._default_headers)
         if not auth:
             headers.pop("Authorization", None)
@@ -148,10 +154,15 @@ class OpenLimitClient:
             resp = conn.getresponse()
             resp_body = resp.read().decode("utf-8")
 
+            # Extract response headers (lowercased keys for easy lookup)
+            raw_headers: dict[str, str] = {}
+            for k, v in resp.getheaders():
+                raw_headers[k.lower()] = v
+
             if resp.status >= 400:
                 self._handle_error(resp.status, resp_body)
 
-            return json.loads(resp_body)
+            return json.loads(resp_body), raw_headers
         finally:
             conn.close()
 

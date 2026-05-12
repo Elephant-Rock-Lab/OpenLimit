@@ -78,6 +78,31 @@ func (h *Handler) recordRBACCheck(role, action, result string) {
 	}
 }
 
+// roleDescriptions provides human-readable descriptions for each role.
+var roleDescriptions = map[string]string{
+	store.RoleAdmin:  "Full access to all admin operations",
+	store.RoleEditor: "Can manage keys and view usage/audit",
+	store.RoleViewer: "Read-only access to keys, usage, and audit",
+}
+
+// listRoles returns the RBAC role-permission matrix.
+// No requireRole check — all authenticated users can view roles.
+func (h *Handler) listRoles(w http.ResponseWriter, r *http.Request) {
+	perms := store.GetRolePermissions()
+	roles := make(map[string]any, len(perms))
+	for role, actions := range perms {
+		desc, _ := roleDescriptions[role]
+		roles[role] = map[string]any{
+			"description": desc,
+			"permissions": actions,
+		}
+	}
+	writeAdminJSON(w, http.StatusOK, map[string]any{
+		"rbac_enabled": h.rbacEnabled,
+		"roles":        roles,
+	})
+}
+
 // --- User management endpoints ---
 
 type createUserRequest struct {

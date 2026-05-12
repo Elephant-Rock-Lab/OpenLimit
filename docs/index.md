@@ -94,6 +94,22 @@ How to integrate OpenLimit with AI agents via MCP and A2A.
 
 ---
 
+### [Plugins](plugins.md)
+
+**Audience:** Developers, platform engineers
+
+**What's inside:**
+- Plugin types (guardrail, middleware, provider)
+- Plugin interfaces and GuardrailContext
+- Writing a guardrail plugin (full example with source code)
+- Writing a middleware plugin (HeaderInjector walkthrough)
+- Configuration — plugin registration + guardrail pipeline reference
+- Best practices for production plugins
+
+Extend the gateway with custom guardrails, middleware, and provider adapters.
+
+---
+
 ### [Observability](observability.md)
 
 **Audience:** SREs, platform engineers
@@ -150,6 +166,94 @@ How to use the OpenLimit API and understand its responses.
 
 ---
 
+### [Smart Routing](configuration.md#routing)
+
+**Audience:** Operators, platform engineers
+
+**What's inside:**
+- Cost-aware routing strategy (cheapest provider selection)
+- Combined smart strategy (cost 40% + latency 40% + health 20%)
+- Configurable cost weights via `routing.cost_weights` YAML
+- Embedded pricing catalog (22 entries across 8 providers)
+- Region-aware routing (priority and latency strategies)
+
+Route requests to the cheapest, fastest, or most available provider.
+
+---
+
+### [Request Replay & A/B Testing](configuration.md#replay)
+
+**Audience:** Operators, DevOps
+
+**What's inside:**
+- Shadow traffic for confident provider migration
+- Per-route replay configuration with sample rate
+- Ring buffer storage (last 1000 results)
+- Summary stats: avg latency comparison, shadow error rate
+- Fire-and-forget async execution
+
+Compare providers side-by-side without affecting production traffic.
+
+---
+
+### [MCP Hub](agent-protocols.md)
+
+**Audience:** AI engineers, platform teams
+
+**What's inside:**
+- `openlimit mcp add` — one-command MCP server registration with auto-discovery
+- `openlimit mcp search` — keyword search over 42-tool embedded catalog
+- Admin dashboard MCP tab: server inventory, health status, tool count
+- TF-IDF-inspired scoring, `--live` flag merges configured servers
+- Deduplication: catalog wins over live for same tool name
+
+Discover, register, and manage MCP servers from CLI and dashboard.
+
+---
+
+### [Guardrail Catalog & Dashboard](governance.md)
+
+**Audience:** Platform teams, security engineers
+
+**What's inside:**
+- 6 built-in validators: PII, keyword, length, regex, JSON schema, webhook
+- `GET /admin/guardrails/catalog` — discover all validators with config docs
+- `POST /admin/guardrails/test` — test sample text against any validator
+- `GET /admin/guardrails/stats` — live hit counters, block rates, per-stage breakdown
+- Dashboard: catalog cards, test form, stats with auto-refresh
+
+Browse, test, and monitor guardrails from the admin dashboard.
+
+---
+
+### [Spend Dashboard](governance.md)
+
+**Audience:** Operators, finance teams
+
+**What's inside:**
+- `GET /admin/usage/spend` — per-key spend and budget utilization
+- Status thresholds: healthy (<75%), warning (75–95%), critical (>95%)
+- Admin UI: total spend card, per-key budget bars with color-coded warnings
+- Period selector (daily/monthly)
+
+Track budget utilization across all virtual keys.
+
+---
+
+### [CLI Tools](getting-started.md)
+
+**Audience:** Developers, operators
+
+**What's inside:**
+- `openlimit-bench` — latency benchmark (P50/P95/P99, concurrency)
+- `openlimit-test` — smoke test (in-process, zero dependencies)
+- `openlimit-doctor` — config diagnostics (provider/key/model checks)
+- `openlimit-mcp` — MCP hub CLI (add servers, search tools)
+
+Self-contained CLI tools with zero external dependencies.
+
+---
+
 ### [Security](security.md)
 
 **Audience:** Security teams, compliance officers
@@ -194,6 +298,7 @@ Step-by-step guide for upgrading to v1.0.0.
 | Install and run the gateway | [Getting Started](getting-started.md) |
 | Configure a new provider | [Configuration](configuration.md) |
 | Set up API key governance | [Governance](governance.md) |
+| Write a custom plugin | [Plugins](plugins.md) |
 | Connect MCP tools | [Agent Protocols](agent-protocols.md) |
 | Set up monitoring | [Observability](observability.md) |
 | Deploy to Kubernetes | [Deployment](deployment.md) |

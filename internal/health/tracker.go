@@ -34,10 +34,12 @@ func NewTracker(window time.Duration) *Tracker {
 	if window <= 0 {
 		window = 30 * time.Second
 	}
-	return &Tracker{
+	t := &Tracker{
 		models: make(map[string]*ModelHealth),
 		window: window,
 	}
+	go t.evictLoop()
+	return t
 }
 
 // healthKey returns the map key for a provider:region:model triple.
@@ -119,4 +121,27 @@ func (t *Tracker) GetAll() []ModelHealth {
 		result = append(result, *h)
 	}
 	return result
+}
+
+// evictLoop periodically removes stale entries with zero consecutive failures
+// that haven't been updated in over 1 hour.
+func (t *Tracker) evictLoop() {
+	ticker := time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		t.mu.Lock()
+		now := time.Now()
+		for key, h := range t.models {
+			if h.ConsecutiveFailures == 0 {
+				lastActivity := h.LastSuccess
+				if h.LastFailure.After(lastActivity) {
+					lastActivity = h.LastFailure
+				}
+				if !lastActivity.IsZero() && now.Sub(lastActivity) > time.Hour {
+					delete(t.models, key)
+				}
+			}
+		}
+		t.mu.Unlock()
+	}
 }

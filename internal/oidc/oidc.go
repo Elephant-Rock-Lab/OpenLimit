@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"log/slog"
 	"sync"
+	"time"
 
 	"openlimit/internal/store"
 
@@ -65,7 +66,8 @@ func NewProvider(cfg ProviderConfig, logger *slog.Logger) (*Provider, error) {
 		cfg.DefaultRole = store.RoleViewer
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
 	oidcProvider, err := oidc.NewProvider(ctx, cfg.Issuer)
 	if err != nil {

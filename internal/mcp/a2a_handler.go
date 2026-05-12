@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +15,13 @@ import (
 
 	"openlimit/internal/config"
 )
+
+// VirtualKeyResolver resolves an A2A bearer token to a GovernanceIdentity
+// via virtual key lookup. Returns IdentityProvider (not *openaiapi.GovernanceIdentity)
+// to avoid circular imports — the openaiapi package handles the type assertion.
+type VirtualKeyResolver interface {
+	ResolveVirtualKey(ctx context.Context, token string) (IdentityProvider, error)
+}
 
 // A2A-specific JSON-RPC error codes (range -32000 to -32099).
 const (
@@ -37,6 +45,7 @@ type A2AHandler struct {
 	defaultModel  string
 	agentCardJSON []byte
 	logger        *slog.Logger
+	keyResolver   VirtualKeyResolver // optional: resolves virtual_key auth to identity
 
 	// Worker pool
 	workQueue    chan string
@@ -226,6 +235,13 @@ func (h *A2AHandler) executeTask(taskID string) {
 		},
 	}
 
+	// Inject governance identity from task metadata (set during handleMessageSend)
+	if identityRaw, ok := task.Metadata["governance_identity"]; ok {
+		if idp, ok := identityRaw.(IdentityProvider); ok {
+			execArgs["_governance_identity"] = idp
+		}
+	}
+
 	start := time.Now()
 	chatResult, err := h.chatExecutor(ctx, "a2a", execArgs)
 	duration := time.Since(start)
@@ -353,6 +369,11 @@ func (h *A2AHandler) SetMetricsRecorder(m a2aMetricsRecorder) {
 	h.metrics = m
 }
 
+// SetKeyResolver sets the virtual key resolver for virtual_key authentication mode.
+func (h *A2AHandler) SetKeyResolver(r VirtualKeyResolver) {
+	h.keyResolver = r
+}
+
 // SetAgentCardCapabilities updates the agent card capabilities and re-marshals it.
 func (h *A2AHandler) SetAgentCardCapabilities(streaming, pushNotifications bool) {
 	var card AgentCard
@@ -389,7 +410,8 @@ func (h *A2AHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Authenticate
-	if !h.authenticate(r) {
+	authIdentity, authed := h.authenticate(r)
+	if !authed {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(Response{
@@ -397,6 +419,11 @@ func (h *A2AHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Error:   &RPCError{Code: CodeInvalidRequest, Message: "unauthorized"},
 		})
 		return
+	}
+
+	// Store resolved identity for use in message/send
+	if authIdentity != nil {
+		r = r.WithContext(context.WithValue(r.Context(), a2aIdentityCtxKey{}, authIdentity))
 	}
 
 	// Decode JSON-RPC request
@@ -436,6 +463,9 @@ func (h *A2AHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// a2aIdentityCtxKey is the context key for resolved A2A identity.
+type a2aIdentityCtxKey struct{}
+
 // messageSendParams contains the parameters for message/send.
 type messageSendParams struct {
 	TaskID            string      `json:"taskId,omitempty"` // optional: continue existing task
@@ -451,6 +481,12 @@ func (h *A2AHandler) handleMessageSend(ctx context.Context, req Request) (json.R
 	var params messageSendParams
 	if err := parseParams(req.Params, &params); err != nil {
 		return nil, &RPCError{Code: CodeInvalidParams, Message: "invalid params: " + err.Error()}
+	}
+
+	// Extract resolved identity from context (set by ServeHTTP after auth)
+	var resolvedIdentity IdentityProvider
+	if id, ok := ctx.Value(a2aIdentityCtxKey{}).(IdentityProvider); ok && id != nil {
+		resolvedIdentity = id
 	}
 
 	// Extract text from parts (only text supported)
@@ -525,6 +561,11 @@ func (h *A2AHandler) handleMessageSend(ctx context.Context, req Request) (json.R
 	// Store push config in metadata if provided
 	if params.PushNotification != nil && params.PushNotification.URL != "" {
 		task.Metadata["pushNotification"] = params.PushNotification
+	}
+
+	// Store resolved identity in metadata for governance (works for both blocking and non-blocking paths)
+	if resolvedIdentity != nil {
+		task.Metadata["governance_identity"] = resolvedIdentity
 	}
 
 	// Blocking mode: execute synchronously (backward compat)
@@ -616,6 +657,13 @@ func (h *A2AHandler) handleMessageSendBlockingWithMode(ctx context.Context, task
 		"messages": []any{
 			map[string]any{"role": "user", "content": extractTextFromHistory(task.History)},
 		},
+	}
+
+	// Inject governance identity from task metadata
+	if identityRaw, ok := task.Metadata["governance_identity"]; ok {
+		if idp, ok := identityRaw.(IdentityProvider); ok {
+			execArgs["_governance_identity"] = idp
+		}
 	}
 
 	chatResult, err := h.chatExecutor(ctx, "a2a", execArgs)
@@ -796,8 +844,8 @@ func (h *A2AHandler) handleTasksList(req Request) (json.RawMessage, *RPCError) {
 // Single-instance only: SSE watchers connect to the same gateway instance.
 // For multi-instance deployments, clients should poll tasks/get.
 func (h *A2AHandler) handleTaskStream(w http.ResponseWriter, r *http.Request) {
-	// Authenticate
-	if !h.authenticate(r) {
+	// Authenticate (identity not needed for streaming — read-only)
+	if _, authed := h.authenticate(r); !authed {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -922,19 +970,36 @@ func (h *A2AHandler) marshalTask(task *A2ATask) (json.RawMessage, *RPCError) {
 }
 
 // authenticate validates the incoming request against the configured auth mode.
-func (h *A2AHandler) authenticate(r *http.Request) bool {
+// Returns (identity, true) on success. identity is non-nil only for virtual_key mode.
+// Returns (nil, false) on authentication failure.
+func (h *A2AHandler) authenticate(r *http.Request) (IdentityProvider, bool) {
 	switch h.cfg.Authentication.Mode {
-	case "none", "":
-		return true
+	case "virtual_key":
+		authHeader := r.Header.Get("Authorization")
+		if !strings.HasPrefix(authHeader, "Bearer ") {
+			return nil, false
+		}
+		token := strings.TrimPrefix(authHeader, "Bearer ")
+		if !strings.HasPrefix(token, "gw-") {
+			return nil, false
+		}
+		if h.keyResolver == nil {
+			return nil, false
+		}
+		identity, err := h.keyResolver.ResolveVirtualKey(r.Context(), token)
+		if err != nil {
+			return nil, false
+		}
+		return identity, true
 	case "bearer_token":
 		authHeader := r.Header.Get("Authorization")
 		if !strings.HasPrefix(authHeader, "Bearer ") {
-			return false
+			return nil, false
 		}
 		token := strings.TrimPrefix(authHeader, "Bearer ")
-		return token == h.cfg.Authentication.BearerToken
-	default:
-		return false
+		return nil, subtle.ConstantTimeCompare([]byte(token), []byte(h.cfg.Authentication.BearerToken)) == 1
+	default: // "none" or empty
+		return nil, true
 	}
 }
 

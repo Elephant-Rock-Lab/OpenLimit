@@ -98,6 +98,9 @@ func main() {
 		runtime.A2AHandler.Shutdown()
 	}
 
+	// Close rate limiter goroutines (OBL-03)
+	runtime.CloseHandlers()
+
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout(cfg))
 	defer cancel()
 

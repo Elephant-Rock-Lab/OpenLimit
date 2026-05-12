@@ -105,22 +105,14 @@ func (e *Executor) Execute(
 
 		round++
 
-		// Re-invoke provider
-		callCtx := ctx
-		if !deadline.IsZero() {
-			remaining := time.Until(deadline)
-			if remaining <= 0 {
-				e.logger.Warn("MCP execution timed out before re-invocation", "round", round)
+	// Re-invoke provider with deadline-aware context
+		nextResp, roundErr := e.invokeWithDeadline(ctx, deadline, *req, callProviderFn)
+		if roundErr != nil {
+			if roundErr == context.DeadlineExceeded {
+				e.logger.Warn("MCP execution timed out during re-invocation", "round", round)
 				return &ExecuteResult{Response: currentResp, RoundsUsed: round, Timeout: true}, nil
 			}
-			var cancel context.CancelFunc
-			callCtx, cancel = context.WithTimeout(ctx, remaining)
-			defer cancel()
-		}
-
-		nextResp, err := callProviderFn(callCtx, *req)
-		if err != nil {
-			return nil, fmt.Errorf("provider re-invocation failed after tool execution: %w", err)
+			return nil, fmt.Errorf("provider re-invocation failed after tool execution: %w", roundErr)
 		}
 		currentResp = nextResp
 	}
@@ -316,6 +308,29 @@ func (e *Executor) hasToolCalls(resp *openaischema.ChatCompletionResponse) bool 
 		return false
 	}
 	return len(resp.Choices[0].Message.ToolCalls) > 0 && string(resp.Choices[0].Message.ToolCalls) != "null"
+}
+
+// invokeWithDeadline calls the provider with a deadline-aware context.
+// The cancel function is called immediately after the provider call
+// completes — no defer-in-loop context leak.
+func (e *Executor) invokeWithDeadline(
+	ctx context.Context,
+	deadline time.Time,
+	req openaischema.ChatCompletionRequest,
+	callProviderFn func(ctx context.Context, req openaischema.ChatCompletionRequest) (*openaischema.ChatCompletionResponse, error),
+) (*openaischema.ChatCompletionResponse, error) {
+	callCtx := ctx
+	if !deadline.IsZero() {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return nil, context.DeadlineExceeded
+		}
+		var cancel context.CancelFunc
+		callCtx, cancel = context.WithTimeout(ctx, remaining)
+		defer cancel()
+	}
+
+	return callProviderFn(callCtx, req)
 }
 
 // extractTextContent extracts text from tool result content blocks.

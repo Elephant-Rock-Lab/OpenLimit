@@ -56,6 +56,7 @@ func TestBucketZeroLimitIsUnlimited(t *testing.T) {
 
 func TestLimiterCheckRPM(t *testing.T) {
 	l := NewLimiter(2, 0) // 2 RPM
+	defer l.Close()
 
 	allowed, _, _, _ := l.CheckRPM("key1")
 	if !allowed {
@@ -75,6 +76,7 @@ func TestLimiterCheckRPM(t *testing.T) {
 
 func TestLimiterSeparateKeys(t *testing.T) {
 	l := NewLimiter(1, 0)
+	defer l.Close()
 
 	allowed, _, _, _ := l.CheckRPM("key1")
 	if !allowed {
@@ -89,6 +91,7 @@ func TestLimiterSeparateKeys(t *testing.T) {
 
 func TestLimiterZeroRPMIsUnlimited(t *testing.T) {
 	l := NewLimiter(0, 0)
+	defer l.Close()
 
 	for i := 0; i < 100; i++ {
 		allowed, _, _, _ := l.CheckRPM("key1")
@@ -100,6 +103,7 @@ func TestLimiterZeroRPMIsUnlimited(t *testing.T) {
 
 func TestLimiterCheckTPM(t *testing.T) {
 	l := NewLimiter(0, 100) // 100 tokens per minute
+	defer l.Close()
 
 	allowed, _, _, _ := l.CheckTPM("key1", 50)
 	if !allowed {
@@ -115,4 +119,74 @@ func TestLimiterCheckTPM(t *testing.T) {
 	if allowed {
 		t.Fatal("1 more token should exceed the 100 TPM limit")
 	}
+}
+
+func TestLimiterEvictsStaleBuckets(t *testing.T) {
+	l := NewLimiter(10, 10)
+	defer l.Close()
+
+	// Access several keys
+	l.CheckRPM("old-key1")
+	l.CheckRPM("old-key2")
+	l.CheckRPM("old-key3")
+
+	l.mu.Lock()
+	if len(l.buckets) != 6 { // 3 keys × 2 types (rpm + tpm lazy, but rpm creates rpm bucket, tpm not called)
+		// Only rpm buckets created = 3
+		if len(l.buckets) != 3 {
+			t.Fatalf("expected 3 or 6 buckets, got %d", len(l.buckets))
+		}
+	}
+	initialCount := len(l.buckets)
+	l.mu.Unlock()
+
+	// Manually age the entries
+	l.mu.Lock()
+	for _, entry := range l.buckets {
+		entry.lastAccess = time.Now().Add(-15 * time.Minute) // older than 10 min threshold
+	}
+	l.mu.Unlock()
+
+	// Run eviction
+	l.evictStale()
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if len(l.buckets) != 0 {
+		t.Fatalf("expected 0 buckets after evicting stale entries (had %d), got %d", initialCount, len(l.buckets))
+	}
+}
+
+func TestLimiterMaxEntriesEnforced(t *testing.T) {
+	l := NewLimiter(100, 0)
+	defer l.Close()
+	l.maxEntries = 5 // small cap for testing
+
+	// Create 10 unique keys (only rpm, so 10 buckets)
+	for i := 0; i < 10; i++ {
+		l.CheckRPM("key-" + string(rune('A'+i)))
+	}
+
+	l.mu.Lock()
+	count := len(l.buckets)
+	l.mu.Unlock()
+
+	if count > l.maxEntries {
+		t.Fatalf("expected at most %d buckets, got %d", l.maxEntries, count)
+	}
+}
+
+func TestLimiterCloseStopsEviction(t *testing.T) {
+	l := NewLimiter(10, 0)
+	l.CheckRPM("key1")
+
+	// Close should not panic
+	l.Close()
+
+	// Give goroutine time to exit
+	time.Sleep(100 * time.Millisecond)
+
+	// Second close would panic on closed channel — don't test that.
+	// Just verify the limiter is still usable for synchronous operations.
+	l.CheckRPM("key2") // should not deadlock
 }

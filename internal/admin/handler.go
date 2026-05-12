@@ -195,11 +195,16 @@ func (h *Handler) handleQuickstart(w http.ResponseWriter, r *http.Request) {
 		keyName = "quickstart"
 	}
 
-	// 1. Create project
-	project, err := store.CreateProject(r.Context(), h.db, "quickstart-"+time.Now().Format("2006-01-02"))
+	// 1. Check for existing quickstart project (duplicate guard)
+	projectName := "quickstart-" + time.Now().Format("2006-01-02")
+	project, err := store.GetProjectByName(r.Context(), h.db, projectName)
 	if err != nil {
-		writeAdminError(w, r, http.StatusInternalServerError, "internal_error", "failed to create project")
-		return
+		// Not found or DB error — try to create
+		project, err = store.CreateProject(r.Context(), h.db, projectName)
+		if err != nil {
+			writeAdminError(w, r, http.StatusInternalServerError, "internal_error", "failed to create project")
+			return
+		}
 	}
 
 	// 2. Generate key
