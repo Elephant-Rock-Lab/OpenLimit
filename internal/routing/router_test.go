@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -239,6 +240,48 @@ type noopLatencyReader struct{}
 func (n *noopLatencyReader) RegionLatency(provider, model, region string) (time.Duration, bool) {
 	return 0, false
 }
+
+func TestRouterConcurrentPlan(t *testing.T) {
+	models := map[string]config.ModelConfig{
+		"gpt-4": {
+			Routes: []config.ModelRoute{
+				{Provider: "openai", Model: "gpt-4", Weight: 2},
+				{Provider: "anthropic", Model: "claude-3", Weight: 1},
+			},
+		},
+	}
+	providers := map[string]config.ProviderConfig{
+		"openai":    {Type: "openai"},
+		"anthropic": {Type: "anthropic"},
+	}
+	r := New(models, providers, config.RoutingConfig{}, nil)
+
+	const goroutines = 50
+	errCh := make(chan error, goroutines)
+
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			plan, err := r.Plan("gpt-4")
+			if err != nil {
+				errCh <- err
+				return
+			}
+			if len(plan.Targets) == 0 {
+				errCh <- fmt.Errorf("empty targets")
+				return
+			}
+			errCh <- nil
+		}()
+	}
+
+	for i := 0; i < goroutines; i++ {
+		if err := <-errCh; err != nil {
+			t.Fatalf("goroutine %d: %v", i, err)
+		}
+	}
+}
+
+// --- Mock implementations ---
 
 type mockLatencyReader struct {
 	latencies map[string]time.Duration
