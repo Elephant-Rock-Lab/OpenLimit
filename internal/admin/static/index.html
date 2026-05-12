@@ -16,7 +16,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .tab:hover{color:var(--text)}
 .tab.active{color:var(--accent);border-bottom-color:var(--accent)}
 .container{max-width:1200px;margin:0 auto;padding:24px}
-.panel{display:none}
+.panel{display:none;outline:none}
 .panel.active{display:block}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:16px}
 .card h2{font-size:16px;font-weight:600;margin-bottom:12px}
@@ -99,34 +99,57 @@ code{background:var(--bg);padding:2px 6px;border-radius:4px;font-size:12px}
 
 /* BATCH-48 TASK-02: Budget bar */
 .budget-bar{transition:width .3s}
+
+/* BATCH-62 TASK-01: Inline login form */
+#login-form{position:fixed;top:0;left:0;width:100%;height:100%;background:var(--bg);z-index:3000;display:flex;align-items:center;justify-content:center}
+#login-form.hidden{display:none}
+.login-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:32px;max-width:400px;width:100%;text-align:center}
+.login-card h2{font-size:20px;font-weight:600;margin-bottom:4px}
+.login-sub{color:var(--muted);font-size:14px;margin-bottom:20px}
+.login-card input[type="password"]{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;color:var(--text);font-size:14px;margin-bottom:12px}
+.login-card input[type="password"]:focus{outline:none;border-color:var(--accent)}
+#login-error{color:var(--red);font-size:13px;margin-bottom:12px}
 </style>
 </head>
 <body>
+<!-- BATCH-62 TASK-01: Inline Login Form -->
+<div id="login-form" class="hidden">
+  <div class="login-card">
+    <h2>⚡ OpenLimit</h2>
+    <p class="login-sub">Enter your admin bearer token</p>
+    <input type="password" id="login-password" placeholder="Bearer token" aria-label="Admin bearer token">
+    <div id="login-error" style="display:none"></div>
+    <button class="btn-primary" id="login-submit" style="width:100%">Sign In</button>
+  </div>
+</div>
 <div class="header">
 <h1>⚡ OpenLimit</h1>
 <span class="ver" id="version">—</span>
 </div>
+<!-- BATCH-62 TASK-02: Consolidated to 5 tabs / BATCH-62 TASK-03: ARIA landmarks -->
 <div class="tabs" role="tablist">
-<div class="tab active" role="tab" aria-selected="true" data-panel="overview" id="tab-overview">Overview</div>
-<div class="tab" role="tab" aria-selected="false" data-panel="keys" id="tab-keys">Keys</div>
-<div class="tab" role="tab" aria-selected="false" data-panel="usage" id="tab-usage">Usage</div>
-<div class="tab" role="tab" aria-selected="false" data-panel="spend" id="tab-spend">Spend</div>
-<div class="tab" role="tab" aria-selected="false" data-panel="guardrails" id="tab-guardrails">Guardrails</div>
-<div class="tab" role="tab" aria-selected="false" data-panel="providers" id="tab-providers">Providers</div>
-<div class="tab" role="tab" aria-selected="false" data-panel="mcp" id="tab-mcp">MCP</div>
-<div class="tab" role="tab" aria-selected="false" data-panel="logs" id="tab-logs">Request Log</div>
+<div class="tab active" role="tab" tabindex="0" aria-selected="true" aria-controls="panel-overview" data-panel="overview" id="tab-overview">Overview</div>
+<div class="tab" role="tab" tabindex="0" aria-selected="false" aria-controls="panel-keys" data-panel="keys" id="tab-keys">Keys</div>
+<div class="tab" role="tab" tabindex="0" aria-selected="false" aria-controls="panel-usage" data-panel="usage" id="tab-usage">Usage</div>
+<div class="tab" role="tab" tabindex="0" aria-selected="false" aria-controls="panel-guardrails" data-panel="guardrails" id="tab-guardrails">Guardrails</div>
+<div class="tab" role="tab" tabindex="0" aria-selected="false" aria-controls="panel-mcp" data-panel="mcp" id="tab-mcp">MCP</div>
 </div>
 <div class="container">
-<!-- Overview -->
-<div class="panel active" role="tabpanel" aria-labelledby="tab-overview" id="panel-overview">
+<!-- Overview (merged: Providers) -->
+<div class="panel active" role="tabpanel" tabindex="-1" aria-labelledby="tab-overview" id="panel-overview">
 <div id="overview-spinner" class="panel-loading"><div class="spinner"></div>Loading...</div>
 <div id="overview-content" style="display:none">
 <div class="grid" id="overview-stats"></div>
 <div class="card"><div class="heading-row"><h2>Projects</h2><button class="btn-sm" aria-label="Create new project" onclick="openCreateProjectModal()">New Project</button></div><div id="overview-projects"></div></div>
 </div>
+<!-- BATCH-62 TASK-02: Merged from Providers panel -->
+<div class="card" style="margin-top:16px"><div class="heading-row"><h2>Provider Health</h2></div>
+<div id="providers-spinner" class="panel-loading"><div class="spinner"></div>Loading providers...</div>
+<div id="providers-content" style="display:none"><div class="grid" id="provider-cards"></div></div>
+</div>
 </div>
 <!-- Keys -->
-<div class="panel" role="tabpanel" aria-labelledby="tab-keys" id="panel-keys">
+<div class="panel" role="tabpanel" tabindex="-1" aria-labelledby="tab-keys" id="panel-keys">
 <div id="keys-spinner" class="panel-loading"><div class="spinner"></div>Loading keys...</div>
 <div id="keys-content" style="display:none">
 <div class="card"><div class="heading-row"><h2>Virtual Keys</h2><button class="btn-sm" aria-label="Create new key" onclick="openCreateKeyModal()">New Key</button></div>
@@ -135,8 +158,8 @@ code{background:var(--bg);padding:2px 6px;border-radius:4px;font-size:12px}
 <tbody id="keys-table"></tbody></table></div>
 </div>
 </div>
-<!-- Usage -->
-<div class="panel" role="tabpanel" aria-labelledby="tab-usage" id="panel-usage">
+<!-- Usage (merged: Spend + Request Log) -->
+<div class="panel" role="tabpanel" tabindex="-1" aria-labelledby="tab-usage" id="panel-usage">
 <div id="usage-spinner" class="panel-loading"><div class="spinner"></div>Loading usage data...</div>
 <div id="usage-content" style="display:none">
 <div class="card"><h2>Usage Analytics</h2>
@@ -148,20 +171,31 @@ code{background:var(--bg);padding:2px 6px;border-radius:4px;font-size:12px}
 </div>
 <div class="card"><h2>Top Models by Spend</h2><div id="usage-top-models"></div></div>
 </div>
-</div>
-<!-- Spend -->
-<div class="panel" role="tabpanel" aria-labelledby="tab-spend" id="panel-spend">
+<!-- BATCH-62 TASK-02: Merged from Spend panel -->
 <div id="spend-spinner" class="panel-loading"><div class="spinner"></div>Loading spend data...</div>
 <div id="spend-content" style="display:none">
-<div class="card"><h2>Budget Overview</h2>
+<div class="card" style="margin-top:16px"><h2>Budget Overview</h2>
 <div class="filters"><select id="spend-period" aria-label="Spend period"><option value="monthly">Monthly</option><option value="daily">Daily</option></select></div>
 <div class="grid" id="spend-summary"></div>
 </div>
 <div class="card"><h2>Per-Key Budget Utilization</h2><div id="spend-keys"></div></div>
 </div>
+<!-- BATCH-62 TASK-02: Merged from Request Log panel -->
+<div id="logs-spinner" class="panel-loading"><div class="spinner"></div>Loading logs...</div>
+<div id="logs-content" style="display:none">
+<div class="card" style="margin-top:16px"><h2>Request Log</h2>
+<div class="filters">
+<input type="text" id="log-model" aria-label="Filter by model" placeholder="Model...">
+<input type="text" id="log-provider" aria-label="Filter by provider" placeholder="Provider...">
+<select id="log-stream" aria-label="Stream type filter"><option value="">All Types</option><option value="false">Non-Streaming</option><option value="true">Streaming</option></select>
+<button class="btn-primary" aria-label="Apply filters" style="padding:6px 16px;font-size:13px" onclick="loadLogs()">Filter</button>
+</div>
+<table><thead><tr><th>Time</th><th>Model</th><th>Provider</th><th>Tokens</th><th>Cost</th><th>Duration</th><th>Cache</th></tr></thead>
+<tbody id="logs-table"></tbody></table></div>
+</div>
 </div>
 <!-- BATCH-49 TASK-02: Guardrails -->
-<div class="panel" role="tabpanel" aria-labelledby="tab-guardrails" id="panel-guardrails">
+<div class="panel" role="tabpanel" tabindex="-1" aria-labelledby="tab-guardrails" id="panel-guardrails">
 <div id="guardrails-spinner" class="panel-loading"><div class="spinner"></div>Loading guardrails...</div>
 <div id="guardrails-content" style="display:none">
 <div class="card"><h2>Guardrail Stats</h2><div id="gr-stats"><div style="color:var(--muted);font-size:13px">Loading stats...</div></div></div>
@@ -185,32 +219,10 @@ code{background:var(--bg);padding:2px 6px;border-radius:4px;font-size:12px}
 </div>
 </div>
 </div>
-<!-- Providers -->
-<div class="panel" role="tabpanel" aria-labelledby="tab-providers" id="panel-providers">
-<div id="providers-spinner" class="panel-loading"><div class="spinner"></div>Loading providers...</div>
-<div id="providers-content" style="display:none">
-<div class="grid" id="provider-cards"></div>
-</div>
-</div>
 <!-- BATCH-53 TASK-02: MCP Servers -->
-<div class="panel" role="tabpanel" aria-labelledby="tab-mcp" id="panel-mcp">
+<div class="panel" role="tabpanel" tabindex="-1" aria-labelledby="tab-mcp" id="panel-mcp">
 <h3>MCP Servers</h3>
 <div id="mcp-servers"><p class="muted">Loading...</p></div>
-</div>
-<!-- Request Log -->
-<div class="panel" role="tabpanel" aria-labelledby="tab-logs" id="panel-logs">
-<div id="logs-spinner" class="panel-loading"><div class="spinner"></div>Loading logs...</div>
-<div id="logs-content" style="display:none">
-<div class="card"><h2>Request Log</h2>
-<div class="filters">
-<input type="text" id="log-model" aria-label="Filter by model" placeholder="Model...">
-<input type="text" id="log-provider" aria-label="Filter by provider" placeholder="Provider...">
-<select id="log-stream" aria-label="Stream type filter"><option value="">All Types</option><option value="false">Non-Streaming</option><option value="true">Streaming</option></select>
-<button class="btn-primary" aria-label="Apply filters" style="padding:6px 16px;font-size:13px" onclick="loadLogs()">Filter</button>
-</div>
-<table><thead><tr><th>Time</th><th>Model</th><th>Provider</th><th>Tokens</th><th>Cost</th><th>Duration</th><th>Cache</th></tr></thead>
-<tbody id="logs-table"></tbody></table></div>
-</div>
 </div>
 </div>
 
@@ -286,23 +298,52 @@ const API=window.location.origin;
 let token='';
 
 // ═══════════════════════════════════════════════════════════
-// BATCH-27: Auth + Network Error Handling (preserved)
+// BATCH-62 TASK-01: Inline Login Form Auth
 // ═══════════════════════════════════════════════════════════
 
-function showAuthError(msg){
-  document.querySelector('.container').innerHTML='<div class="card" style="text-align:center;padding:40px"><h2 style="margin-bottom:12px">Authentication Required</h2><p style="color:var(--muted);margin-bottom:16px">'+esc(msg)+'</p><button class="btn-primary" onclick="location.reload()">Retry</button></div>';
+function showLoginForm(errorMsg){
+  document.getElementById('login-form').classList.remove('hidden');
+  var pwInput=document.getElementById('login-password');
+  pwInput.value='';
+  var errorEl=document.getElementById('login-error');
+  if(errorMsg){errorEl.textContent=errorMsg;errorEl.style.display='block'}
+  else{errorEl.style.display='none'}
+  pwInput.focus();
 }
+
+function hideLoginForm(){
+  document.getElementById('login-form').classList.add('hidden');
+}
+
+function handleLogin(){
+  var input=document.getElementById('login-password').value;
+  if(!input){
+    document.getElementById('login-error').textContent='Token cannot be empty';
+    document.getElementById('login-error').style.display='block';
+    return;
+  }
+  token=input;
+  localStorage.setItem('admin_token',token);
+  hideLoginForm();
+  loadOverview();
+  loadProjectFilter();
+}
+
+document.getElementById('login-submit').onclick=handleLogin;
+document.getElementById('login-password').addEventListener('keydown',function(e){
+  if(e.key==='Enter')handleLogin();
+});
 
 function getToken(){
   token=localStorage.getItem('admin_token');
   if(token)return token;
-  const input=prompt('Enter admin bearer token:');
-  if(input===null){showAuthError('Authentication was cancelled. Click Retry to try again.');return null}
-  if(!input){showAuthError('Token cannot be empty. Click Retry to try again.');return null}
-  token=input;
-  localStorage.setItem('admin_token',token);
-  return token;
+  showLoginForm();
+  return null;
 }
+
+// ═══════════════════════════════════════════════════════════
+// BATCH-27: Network Error Handling (preserved)
+// ═══════════════════════════════════════════════════════════
 
 let networkErrorShown=false;
 function showNetworkError(msg){
@@ -317,8 +358,8 @@ async function api(path){
     const r=await fetch(API+path,{headers:{'Authorization':'Bearer '+token}});
     if(r.status===401){
       localStorage.removeItem('admin_token');token='';
-      if(getToken()===null)return{};
-      return api(path);
+      showLoginForm('Invalid token. Please try again.');
+      return{};
     }
     return await r.json();
   }catch(e){
@@ -333,8 +374,8 @@ async function apiPost(path,body){
     const r=await fetch(API+path,{method:'POST',headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(body)});
     if(r.status===401){
       localStorage.removeItem('admin_token');token='';
-      if(getToken()===null)return{};
-      return apiPost(path,body);
+      showLoginForm('Invalid token. Please try again.');
+      return{};
     }
     return await r.json();
   }catch(e){
@@ -347,7 +388,7 @@ async function apiDelete(path){
   if(!token){if(getToken()===null)return{ok:false}}
   try{
     const r=await fetch(API+path,{method:'DELETE',headers:{'Authorization':'Bearer '+token}});
-    if(r.status===401){localStorage.removeItem('admin_token');token='';if(getToken()===null)return{ok:false};return apiDelete(path)}
+    if(r.status===401){localStorage.removeItem('admin_token');token='';showLoginForm('Invalid token. Please try again.');return{ok:false}}
     return{ok:r.ok,status:r.status};
   }catch(e){showNetworkError('Cannot reach the gateway at '+API+'. Is it running?');return{ok:false}}
 }
@@ -415,7 +456,7 @@ function emptyState(icon,title,description,ctaLabel,ctaAction){
 }
 
 // ═══════════════════════════════════════════════════════════
-// Tabs + Panel Routing
+// Tabs + Panel Routing (BATCH-62: consolidated + ARIA)
 // ═══════════════════════════════════════════════════════════
 
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
@@ -424,12 +465,41 @@ document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
   document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
   t.classList.add('active');
   t.setAttribute('aria-selected','true');
-  document.getElementById('panel-'+t.dataset.panel).classList.add('active');
+  var panel=document.getElementById('panel-'+t.dataset.panel);
+  panel.classList.add('active');
   window.location.hash=t.dataset.panel;
   loadPanel(t.dataset.panel);
+  // BATCH-62 TASK-03: Focus management — move focus to panel content
+  panel.focus();
 });
 
-function loadPanel(p){switch(p){case'overview':loadOverview();break;case'keys':loadKeys();break;case'usage':loadUsage();break;case'spend':loadSpend();break;case'guardrails':loadGuardrails();break;case'providers':loadProviders();break;case'mcp':loadMCP();break;case'logs':loadLogs()}}
+// BATCH-62 TASK-03: Arrow key navigation for tabs
+document.querySelector('[role="tablist"]').addEventListener('keydown',function(e){
+  var tabs=Array.from(document.querySelectorAll('.tab'));
+  tabs=tabs.filter(function(el){return el.getAttribute('role')==='tab'});
+  var idx=tabs.indexOf(document.activeElement);
+  if(idx<0)return;
+  if(e.key==='ArrowRight'){
+    e.preventDefault();
+    var next=tabs[(idx+1)%tabs.length];
+    next.focus();next.click();
+  }else if(e.key==='ArrowLeft'){
+    e.preventDefault();
+    var prev=tabs[(idx-1+tabs.length)%tabs.length];
+    prev.focus();prev.click();
+  }
+});
+
+// BATCH-62 TASK-02: Consolidated loadPanel (5 tabs)
+function loadPanel(p){
+  switch(p){
+    case'overview':loadOverview();loadProviders();break;
+    case'keys':loadKeys();break;
+    case'usage':loadUsage();loadSpend();loadLogs();break;
+    case'guardrails':loadGuardrails();break;
+    case'mcp':loadMCP();break;
+  }
+}
 
 // ═══════════════════════════════════════════════════════════
 // Overview Panel
@@ -516,7 +586,7 @@ document.getElementById('usage-project').onchange=()=>loadUsage();
 async function loadProjectFilter(){const projects=await api('/admin/projects');const sel=document.getElementById('usage-project');sel.innerHTML='<option value="">All Projects</option>'+projects.map(p=>'<option value="'+p.id+'">'+esc(p.name)+'</option>').join('')}
 
 // ═══════════════════════════════════════════════════════════
-// BATCH-48 TASK-02: Spend Dashboard Panel
+// BATCH-48 TASK-02: Spend Dashboard (now sub-section in Usage)
 // ═══════════════════════════════════════════════════════════
 
 // computeStatusJS mirrors Go computeKeyStatus for client-side rendering.
@@ -545,7 +615,6 @@ async function loadSpend() {
   var totalSpend = data.total_spend_usd || 0;
   var totalBudget = data.total_budget_usd || 0;
   var overallPct = totalBudget > 0 ? (totalSpend / totalBudget * 100) : 0;
-  var overallStatus = computeStatusJS(totalSpend, totalBudget);
 
   // Render total spend card
   var summaryHtml = '';
@@ -599,8 +668,19 @@ async function loadSpend() {
 document.getElementById('spend-period').onchange = function() { loadSpend(); };
 
 // ═══════════════════════════════════════════════════════════
-// Guardrails Panel (BATCH-49)
+// Guardrails Panel (BATCH-49 + BATCH-62 TASK-02: catalog prefill)
 // ═══════════════════════════════════════════════════════════
+
+// BATCH-62 TASK-02: Store catalog data for prefill
+var _grCatalog=[];
+
+// BATCH-62 TASK-02: Prefill guardrail test form from catalog card click
+function prefillGuardrailTest(idx){
+  var v=_grCatalog[idx];
+  if(!v)return;
+  if(v.type)document.getElementById('gr-test-type').value=v.type;
+  if(v.default_config)document.getElementById('gr-test-config').value=JSON.stringify(v.default_config,null,2);
+}
 
 async function loadGuardrails(){
   showSpinner('guardrails');
@@ -609,11 +689,12 @@ async function loadGuardrails(){
     document.getElementById('guardrails-catalog').innerHTML=emptyState('🛡️','No guardrails available','Guardrails are built into OpenLimit.','',null);
     hideSpinner('guardrails');return;
   }
+  _grCatalog=data;
   var html='';
   for(var i=0;i<data.length;i++){
     var v=data[i];
     var badge=v.testable?'<span class="badge green">Testable</span>':'<span class="badge" style="background:var(--border);color:var(--muted)">Live Only</span>';
-    html+='<div class="card provider-card"><div class="name">'+esc(v.name)+' '+badge+'</div>';
+    html+='<div class="card provider-card" style="cursor:pointer" onclick="prefillGuardrailTest('+i+')"><div class="name">'+esc(v.name)+' '+badge+'</div>';
     html+='<p style="color:var(--muted);font-size:13px;margin:8px 0">'+esc(v.description)+'</p>';
     if(v.config_fields&&v.config_fields.length>0){
       html+='<div style="font-size:12px;color:var(--muted)">Config: ';
@@ -742,7 +823,7 @@ function loadMCP(){
 }
 
 // ═══════════════════════════════════════════════════════════
-// Providers Panel
+// Providers Panel (now sub-section in Overview)
 // ═══════════════════════════════════════════════════════════
 
 async function loadProviders(){
@@ -768,7 +849,7 @@ async function loadProviders(){
 }
 
 // ═══════════════════════════════════════════════════════════
-// Request Log Panel
+// Request Log Panel (now sub-section in Usage)
 // ═══════════════════════════════════════════════════════════
 
 async function loadLogs(){
@@ -1100,7 +1181,12 @@ function activateTabByHash(){
     document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
     tab.classList.add('active');
     tab.setAttribute('aria-selected','true');
-    document.getElementById('panel-'+hash).classList.add('active');
+    var panel=document.getElementById('panel-'+hash);
+    if(panel){
+      panel.classList.add('active');
+      // BATCH-62 TASK-03: Focus management on hash-based activation
+      panel.focus();
+    }
     loadPanel(hash);
   }
 }
