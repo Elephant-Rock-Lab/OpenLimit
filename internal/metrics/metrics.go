@@ -1,7 +1,11 @@
 package metrics
 
 import (
+	"math"
 	"net/http"
+	"sort"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -55,6 +59,15 @@ type Collector struct {
 
 	// Phase 7C metrics
 	gatewayErrorsTotal *prometheus.CounterVec
+
+	// BATCH-50: In-memory guardrail stats (work without Prometheus)
+	grBlocks   sync.Map // map[key]*atomic.Int64  key="stage|direction"
+	grRedacts  sync.Map // map[key]*atomic.Int64  key="stage|direction"
+	grPasses   atomic.Int64
+	grRequests atomic.Int64
+
+	// BATCH-59: Usage drop counter (atomic, safe from any goroutine)
+	usageDrops atomic.Int64
 }
 
 var latencyBuckets = []float64{0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60}
@@ -391,6 +404,8 @@ func (c *Collector) ActiveRequestsDec() {
 }
 
 func (c *Collector) RecordGuardrailBlock(stage, direction, model string) {
+	c.grRequests.Add(1)
+	c.incrementStageCounter(&c.grBlocks, stage, direction)
 	if !c.enabled {
 		return
 	}
@@ -398,6 +413,8 @@ func (c *Collector) RecordGuardrailBlock(stage, direction, model string) {
 }
 
 func (c *Collector) RecordGuardrailRedaction(stage, direction, model string) {
+	c.grRequests.Add(1)
+	c.incrementStageCounter(&c.grRedacts, stage, direction)
 	if !c.enabled {
 		return
 	}
@@ -431,6 +448,126 @@ func (c *Collector) RecordMCPMaxRoundsExceeded(model string) {
 		return
 	}
 	c.mcpMaxRoundsExceeded.WithLabelValues(model).Inc()
+}
+
+// RecordGuardrailPass increments the pass counter.
+func (c *Collector) RecordGuardrailPass() {
+	c.grPasses.Add(1)
+	c.grRequests.Add(1)
+}
+
+// incrementStageCounter increments a per-stage atomic counter in the sync.Map.
+func (c *Collector) incrementStageCounter(m *sync.Map, stage, direction string) {
+	key := stage + "|" + direction
+	val, _ := m.LoadOrStore(key, new(atomic.Int64))
+	val.(*atomic.Int64).Add(1)
+}
+
+// GuardrailStageStats holds per-stage guardrail statistics.
+type GuardrailStageStats struct {
+	Name       string `json:"name"`
+	Blocks     int64  `json:"blocks"`
+	Redactions int64  `json:"redactions"`
+	Direction  string `json:"direction"`
+}
+
+// GuardrailStatsSnapshot is a point-in-time snapshot of guardrail counters.
+type GuardrailStatsSnapshot struct {
+	TotalBlocks     int64                 `json:"total_blocks"`
+	TotalRedactions int64                 `json:"total_redactions"`
+	TotalPasses     int64                 `json:"total_passes"`
+	TotalRequests   int64                 `json:"total_requests"`
+	BlockRatePct    float64               `json:"block_rate_pct"`
+	RedactRatePct   float64               `json:"redact_rate_pct"`
+	Stages          []GuardrailStageStats `json:"stages"`
+}
+
+// GetGuardrailStats returns a snapshot of guardrail counters.
+func (c *Collector) GetGuardrailStats() GuardrailStatsSnapshot {
+	totalReqs := c.grRequests.Load()
+
+	// Collect per-stage data by iterating both sync.Maps
+	type stageKey struct {
+		name      string
+		direction string
+	}
+	stageMap := map[stageKey]*GuardrailStageStats{}
+
+	c.grBlocks.Range(func(key, val any) bool {
+		k := key.(string)
+		stage, direction := splitStageKey(k)
+		sk := stageKey{stage, direction}
+		if _, ok := stageMap[sk]; !ok {
+			stageMap[sk] = &GuardrailStageStats{Name: stage, Direction: direction}
+		}
+		stageMap[sk].Blocks = val.(*atomic.Int64).Load()
+		return true
+	})
+
+	c.grRedacts.Range(func(key, val any) bool {
+		k := key.(string)
+		stage, direction := splitStageKey(k)
+		sk := stageKey{stage, direction}
+		if _, ok := stageMap[sk]; !ok {
+			stageMap[sk] = &GuardrailStageStats{Name: stage, Direction: direction}
+		}
+		stageMap[sk].Redactions = val.(*atomic.Int64).Load()
+		return true
+	})
+
+	totalBlocks := int64(0)
+	c.grBlocks.Range(func(_, val any) bool {
+		totalBlocks += val.(*atomic.Int64).Load()
+		return true
+	})
+
+	totalRedacts := int64(0)
+	c.grRedacts.Range(func(_, val any) bool {
+		totalRedacts += val.(*atomic.Int64).Load()
+		return true
+	})
+
+	totalPasses := c.grPasses.Load()
+
+	blockRate := 0.0
+	if totalReqs > 0 {
+		blockRate = math.Round(float64(totalBlocks)/float64(totalReqs)*1000) / 10
+	}
+	redactRate := 0.0
+	if totalReqs > 0 {
+		redactRate = math.Round(float64(totalRedacts)/float64(totalReqs)*1000) / 10
+	}
+
+	stages := make([]GuardrailStageStats, 0, len(stageMap))
+	for _, s := range stageMap {
+		stages = append(stages, *s)
+	}
+	sort.Slice(stages, func(i, j int) bool {
+		if stages[i].Name != stages[j].Name {
+			return stages[i].Name < stages[j].Name
+		}
+		return stages[i].Direction < stages[j].Direction
+	})
+
+	return GuardrailStatsSnapshot{
+		TotalBlocks:     totalBlocks,
+		TotalRedactions: totalRedacts,
+		TotalPasses:     totalPasses,
+		TotalRequests:   totalReqs,
+		BlockRatePct:    blockRate,
+		RedactRatePct:   redactRate,
+		Stages:          stages,
+	}
+}
+
+// splitStageKey splits "stage|direction" into two strings.
+func splitStageKey(key string) (string, string) {
+	for i := 0; i < len(key); i++ {
+		if key[i] == '|' {
+			return key[:i], key[i+1:]
+		}
+	}
+	return key, ""
 }
 
 // SetRedisHealthy updates the Redis health gauge.
@@ -622,4 +759,29 @@ func (c *Collector) RecordA2ATaskCompletion(status, model string, duration time.
 	}
 	a2aTaskCompletions.WithLabelValues(status).Inc()
 	a2aTaskDuration.WithLabelValues(status, model).Observe(duration.Seconds())
+}
+
+// RecordStreamIncomplete tracks streams that were interrupted before completion.
+func (c *Collector) RecordStreamIncomplete(provider string) {
+	if c == nil || !c.enabled {
+		return
+	}
+	c.gatewayErrorsTotal.WithLabelValues("stream_incomplete", provider).Inc()
+}
+
+// RecordUsageDrop increments the usage log drop counter.
+// Safe to call from any goroutine.
+func (c *Collector) RecordUsageDrop() {
+	if c == nil {
+		return
+	}
+	c.usageDrops.Add(1)
+}
+
+// UsageDropCount returns the total number of dropped usage log entries.
+func (c *Collector) UsageDropCount() int64 {
+	if c == nil {
+		return 0
+	}
+	return c.usageDrops.Load()
 }

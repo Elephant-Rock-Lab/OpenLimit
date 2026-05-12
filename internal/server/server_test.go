@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -512,6 +513,54 @@ func readBody(t *testing.T, r io.Reader) string {
 		t.Fatalf("read body: %v", err)
 	}
 	return string(data)
+}
+
+// ---------------------------------------------------------------------------
+// BATCH-59 / TASK-01: API route body limit independence test
+// ---------------------------------------------------------------------------
+// Note: Admin body limit tests (TEST-59-01-01, TEST-59-01-02) are in sec03_test.go
+// because they need white-box access to maxBodySizeMiddleware.
+
+// TEST-59-01-04: API route is independent of admin 64KB body limit.
+// API route uses MaxBodySizeKB from config (default), NOT the admin 64KB limit.
+func TestAPIRoute_IndependentOfAdminBodyLimit(t *testing.T) {
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(t, w, map[string]any{
+			"id":      "chatcmpl_test",
+			"object":  "chat.completion",
+			"created": float64(123),
+			"model":   "provider-model",
+			"choices": []map[string]any{{
+				"index": float64(0),
+				"message": map[string]any{
+					"role":    "assistant",
+					"content": "ok",
+				},
+				"finish_reason": "stop",
+			}},
+			"usage": map[string]any{"prompt_tokens": float64(1), "completion_tokens": float64(1), "total_tokens": float64(2)},
+		})
+	}))
+	defer provider.Close()
+
+	cfg := testConfig(provider.URL, "openai-compatible")
+	// Set MaxBodySizeKB to 100KB so API route accepts >64KB bodies
+	cfg.Server.MaxBodySizeKB = 100
+
+	runtime := newRuntime(t, cfg)
+	gateway := httptest.NewServer(runtime.Server.Handler)
+	defer gateway.Close()
+
+	// 70KB body — exceeds admin 64KB limit but under API 100KB limit
+	bigContent := strings.Repeat("x", 70*1024)
+	body := fmt.Sprintf(`{"model":"fast","messages":[{"role":"user","content":"%s"}]}`, bigContent)
+
+	resp := postChat(t, gateway.URL, body)
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusRequestEntityTooLarge {
+		t.Errorf("API route rejected 70KB body with 413; API body limit should be independent of admin 64KB limit")
+	}
 }
 
 func collectDataLines(t *testing.T, r io.Reader) []string {

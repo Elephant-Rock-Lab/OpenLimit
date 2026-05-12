@@ -30,7 +30,9 @@ type Entry struct {
 type Writer struct {
 	db     *sql.DB
 	logs   chan Entry
+	done   chan struct{}
 	logger *slog.Logger
+	dropFn func() // called when an entry is dropped due to full buffer
 }
 
 // DB returns the underlying database connection.
@@ -50,6 +52,7 @@ func NewWriter(db *sql.DB, logger *slog.Logger, bufferSize int) *Writer {
 	w := &Writer{
 		db:     db,
 		logs:   make(chan Entry, bufferSize),
+		done:   make(chan struct{}),
 		logger: logger,
 	}
 	go w.process()
@@ -67,7 +70,20 @@ func (w *Writer) Record(entry Entry) {
 		w.logger.Warn("usage log buffer full, dropping entry",
 			"request_id", entry.RequestID,
 		)
+		if w.dropFn != nil {
+			w.dropFn()
+		}
 	}
+}
+
+// SetDropRecorder sets a callback that is called when an entry is dropped
+// because the buffer is full. The callback must be safe to call from any
+// goroutine.
+func (w *Writer) SetDropRecorder(fn func()) {
+	if w == nil {
+		return
+	}
+	w.dropFn = fn
 }
 
 // Close stops the writer and flushes pending entries.
@@ -76,9 +92,11 @@ func (w *Writer) Close() {
 		return
 	}
 	close(w.logs)
+	<-w.done // Wait for process() to finish draining
 }
 
 func (w *Writer) process() {
+	defer close(w.done)
 	for entry := range w.logs {
 		if err := w.write(entry); err != nil {
 			w.logger.Error("failed to write usage log",
