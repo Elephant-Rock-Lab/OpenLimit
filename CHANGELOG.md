@@ -5,7 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.4.1] - 2026-05-13
+## [1.4.2] - 2026-05-13
+
+### Fixed
+- **OBL-05 resolved**: 8 server integration tests now pass. Root cause was `MaxBodySizeKB=0` in test config bypassing the loader's 10MB default. One-line fix in `baseConfig()`.
+
+### Tests
+- **741/741 tests pass** — zero failures, zero regressions
+- **Clean sheet** — first release with 100% test pass rate
+
+---
+
+
 
 ### Fixed — Critical Security (BATCH-57)
 - **JSON injection in guardrail redaction**: Replace string concat into `json.RawMessage` with `json.Marshal()`
