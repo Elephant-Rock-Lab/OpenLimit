@@ -446,6 +446,7 @@ func newRuntime(t *testing.T, cfg config.Config) *server.Runtime {
 
 func baseConfig() config.Config {
 	cfg := config.Default()
+	cfg.Server.MaxBodySizeKB = 10240 // 10MB — match loader default
 	cfg.Cache.Exact.Enabled = true
 	cfg.Cache.Exact.MaxEntries = 100
 	cfg.Cache.Exact.TTLSeconds = 60
