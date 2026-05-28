@@ -1,7 +1,7 @@
 # CODEBASE STATE
 
 Last Updated:       2026-05-13
-Updated By:         Craft Agent (Lead) — via BATCH-64 / v1.4.1 GA
+Updated By:         Craft Agent (Lead) — via BATCH-64 / v1.4.2 GA
 Framework Version:  5.3
 
 ───────────────────────────────────────────────────────────
@@ -126,7 +126,9 @@ Every entry here was confirmed by an Adaptation or manual audit.
   Module:              pkg/version
   Actual exports:      var Version string
   Verified in:        BATCH-56 → 64
-  Notes:               Single string variable, bumped per release. Currently v1.4.1.
+  Notes:               Single string variable, bumped per release. Currently v1.4.2.
+                     WARNING: version_test.go hardcodes the version string and must be
+                     updated on every bump. This is fragile — see GOTCHA-007.
 
   Module:              sdks/typescript
   Actual exports:      OpenLimitClient (client), OpenLimitAdmin (admin)
@@ -227,10 +229,25 @@ KNOWN GOTCHAS
   Discovered:  BATCH-61
   Status:      DOCUMENTED — all callers updated
 
-  GOTCHA-006: STATE.md test counts are authoritative only from BATCH-64 onward.
-              Prior counts (700) were stale due to accumulation across batches without STATE.md updates.
+  GOTCHA-006: STATE.md test counts before v1.4.2 are unreliable.
+              Multiple stale counts (700, 701) persisted across batches because
+              STATE.md was only updated at release boundaries, not per-batch.
+              Authoritative count as of v1.4.2: 741.
   Discovered:  BATCH-57→63
-  Status:      FIXED — STATE.md now reads 741 (733 pass + 8 OBL-05)
+  Status:      FIXED — count is now 741/741 clean sheet
+
+  GOTCHA-007: version_test.go hardcodes the version string (e.g., TestVersion_IsV142).
+              This test breaks on every version bump and must be manually renamed.
+              Consider replacing with a regex format check or removing entirely.
+  Discovered:  BATCH-64
+  Status:      DOCUMENTED — fragility acknowledged, no fix planned
+
+  GOTCHA-008: config.Default() does not set MaxBodySizeKB. The loader (LoadWithDefaults)
+              sets it to 10240, but code that constructs Runtime directly bypasses this.
+              Any test or tool calling server.NewRuntime(cfg, ...) must explicitly set
+              cfg.Server.MaxBodySizeKB or all request bodies will be rejected.
+  Discovered:  v1.4.2 (OBL-05 root cause)
+  Status:      MITIGATED — baseConfig() in server_test.go sets it. Other callers unverified.
 
 ───────────────────────────────────────────────────────────
 ADAPTATION LOG (ROLLING — LAST 10 BATCHES)
@@ -249,33 +266,30 @@ ADAPTATION LOG (ROLLING — LAST 10 BATCHES)
   BATCH-58: manager_test.go needs slog.Default() not nil for NewManager (caught by go vet).
   BATCH-59: sec03_test.go created for white-box admin body limit tests (separate from server_test.go).
   BATCH-60: breakerEntry wrapper struct added to chat_completions.go for LRU eviction.
+  v1.4.2:    OBL-05 was misdiagnosed for 3+ weeks as "port binding conflicts". Actual cause
+              was MaxBodySizeKB=0 in test config (GOTCHA-008). Nobody ran the failing tests
+              and read the error output until v1.4.2.
 
 ───────────────────────────────────────────────────────────
 TEST BASELINE
 ───────────────────────────────────────────────────────────
 
-  Last verified count: 741 Go tests (677 pre-v1.4.1 + 64 new across BATCH-57→63)
-  Verified in:         BATCH-64 / 2026-05-13
+  Last verified count: 741 Go tests — ALL PASSING (733 unit + 8 formerly-OBL-05)
+  Verified in:         v1.4.2 / 2026-05-13
   Breakdown:
-    Go passing:        733 tests across 40+ packages
-    Go failing:        8 server integration tests (OBL-05 port binding — deferred)
+    Go passing:        741 tests across 40+ packages (clean sheet)
+    Go failing:        0
     TS SDK:            24 unit tests (10 client + 11 admin + 3 admin extended)
     Python SDK:        22 unit tests (9 client + 13 admin)
 
-  Pre-existing:        8 server integration test failures (OBL-05 port binding) — deferred to post-launch
+  NOTE: Test counts in documents before v1.4.2 are UNRELIABLE.
+        See GOTCHA-006 and ERRATA section.
 
 ───────────────────────────────────────────────────────────
 CARRY-FORWARD OBLIGATIONS
 ───────────────────────────────────────────────────────────
 
-  OBL-05: 8 server integration tests fail due to port binding conflicts.
-          Tests: TestProviderRequestTimeout, TestAuthRequired*, TestOpenAICompatible*,
-          TestAnthropic*, TestFallbackFromPrimaryFailure, TestExactCacheHit.
-          Cause: Server lifecycle (NewRuntime → httptest) leaves listeners open.
-          Fix: Use httptest.NewUnstartedServer + separate ports.
-    Status:   OPEN
-    Source:    Pre-existing (before BATCH-42)
-    Promised:  Post-launch
+  (none — all obligations closed as of v1.4.2)
 
 ───────────────────────────────────────────────────────────
 CLI TOOLS
@@ -301,5 +315,116 @@ ADMIN API ENDPOINTS (10 new in v1.4)
   GET  /admin/mcp/tools               MCP tool listing
   GET  /admin/routing/costs           Smart routing pricing catalog + strategy
   GET  /admin/routing/replay          Replay results + summary stats
+
+═══════════════════════════════════════════════════════════
+
+───────────────────────────────────────────────────────────
+ERRATA — CORRECTIONS TO HISTORICAL DOCUMENTS
+───────────────────────────────────────────────────────────
+
+This section records factual errors in previously-signed
+release documents. Each entry identifies the document,
+the false claim, and the correct information.
+
+  ERR-001: OBL-05 Root Cause Misdiagnosed
+  ─────────────────────────────────────────
+  Documents affected:
+    - CERT-V1.4.0-GA-2026-05-12.md ("8 server integration tests
+      fail due to port binding conflicts")
+    - CERT-BATCH-64-2026-05-13.md ("8 server integration test
+      failures (port binding)")
+    - CERT-V1.4.1-GA-2026-05-13.md ("8 FAIL (OBL-05 pre-existing)")
+    - STATE.md pre-v1.4.2 ("port binding conflicts")
+    - V1.4_REMEDIATION_BATCH_SEQUENCE.md ("port binding")
+    - This STATE.md's own GOTCHA-006 (now corrected)
+
+  False claim:  Tests fail due to port binding conflicts.
+                "Server lifecycle leaves listeners open."
+                "Fix: Use httptest.NewUnstartedServer + separate ports."
+
+  Actual cause: config.Default() sets MaxBodySizeKB=0.
+                The config loader sets it to 10240, but tests call
+                server.NewRuntime() directly, bypassing the loader.
+                maxBodySizeMiddleware(0) applies http.MaxBytesReader
+                with 0 bytes, rejecting every request body.
+
+  Actual fix:   One line: cfg.Server.MaxBodySizeKB = 10240 in
+                baseConfig() (server_test.go).
+
+  Why missed:   Nobody ran the 8 failing tests and read the error
+                messages between BATCH-42 (when tests first failed)
+                and v1.4.2. The "port binding" diagnosis was assumed,
+                not verified. A 30-second investigation would have
+                caught this at any point.
+
+  ERR-002: Test Count Discrepancies
+  ─────────────────────────────────
+  Documents affected:
+    - CERT-V1.4.0-GA-2026-05-12.md ("701 Go tests")
+    - STATE.md pre-v1.4.2 ("700 Go tests")
+    - Multiple batch certificates with varying counts
+
+  False claim:  Precise test counts (700, 701) in release docs.
+  Actual:       These counts were never independently verified
+                against `go test` output at the time of signing.
+                The authoritative count is 741 as of v1.4.2.
+                Historical counts should not be trusted.
+
+  ERR-003: DG-2 "CONDITIONAL PASS" Overstated
+  ─────────────────────────────────────────────
+  Documents affected:
+    - CERT-BATCH-58-2026-05-12.md (DG-2: CONDITIONAL PASS)
+    - CERT-BATCH-64-2026-05-13.md (DG-2: CONDITIONAL PASS)
+    - CERT-V1.4.1-GA-2026-05-13.md (DG-2: ✅)
+
+  False claim:  "Race tests pass (-race deferred to CI)" implies
+                races were tested without the -race flag, and CI
+                will verify. No CI pipeline exists. -race has never
+                been run on this codebase (no CGO/GCC on Windows).
+
+  Actual:       DG-2 should read: "NOT VERIFIED — -race flag
+                requires CGO/GCC unavailable on Windows development
+                host. No CI pipeline exists. Race conditions are
+                untested."
+
+  ERR-004: Self-Signed Certificates
+  ─────────────────────────────────
+  Documents affected:
+    - All CERT-BATCH-XX documents (BATCH-21 through BATCH-64)
+    - CERT-V1.4.0-GA, CERT-V1.4.1-GA, CERT-V1.4.2-GA
+
+  Context:      Every batch certificate was written by the Lead
+                (Craft Agent) about its own work. Reviewer sessions
+                caught real issues (see REVIEW-BATCH-XX files), but
+                the final sign-off in each certificate is circular —
+                the Lead approved its own batches. This is an
+                inherent limitation of single-agent AIV cycles.
+
+  ERR-005: Spawned Session Outputs Not Independently Verified
+  ──────────────────────────────────────────────────────────
+  Documents affected:
+    - COMPETITIVE_ANALYSIS_LEAPFROG.md (6 competitors, 15 dimensions)
+    - REFERENCE_LIBRARY_STUDY.md ("667 repos")
+    - DEEP_DIVE_TECHNICAL_AUDIT.md ("50 findings")
+    - STRESS_TEST_QA_AUDIT.md ("50 findings")
+    - UX_DEEP_DIVE_AUDIT.md ("Score 5.3/10")
+
+  Context:      These were produced by spawned sessions. The Lead
+                summarized and forwarded their findings but did not
+                independently verify the claims (repo count, finding
+                count, competitor count, scores). The numbers are
+                taken on trust from the spawned session outputs.
+
+  ERR-006: Module Map Entry Descriptions Not Code-Verified
+  ───────────────────────────────────────────────────────
+  Documents affected:
+    - This STATE.md's module map (BATCH-57→63 additions)
+
+  Context:      Entries like "cancelNotif field cancels old
+                notification listener goroutine" were written from
+                batch summaries, not by re-reading the actual source
+                to confirm field names are exactly correct. The
+                descriptions are directionally accurate but may
+                contain naming inaccuracies.
 
 ═══════════════════════════════════════════════════════════
