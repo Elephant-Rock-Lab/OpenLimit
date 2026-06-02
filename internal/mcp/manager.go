@@ -11,13 +11,13 @@ import (
 
 // serverState tracks the connection state of an MCP server.
 type serverState struct {
-	mu         sync.Mutex
-	name       string
-	client     *Client
-	config     config.MCPServerConfig
-	connected  bool
-	lastPing   time.Time
-	lastError  error
+	mu          sync.Mutex
+	name        string
+	client      *Client
+	config      config.MCPServerConfig
+	connected   bool
+	lastPing    time.Time
+	lastError   error
 	cancelNotif context.CancelFunc // cancels the notification listener goroutine
 
 	// debounce for tools/list_changed notifications

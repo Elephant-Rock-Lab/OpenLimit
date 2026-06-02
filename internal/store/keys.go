@@ -222,6 +222,7 @@ func LookupVirtualKeyByToken(ctx context.Context, db Queryer, token string) (*Vi
 	}
 	return nil, fmt.Errorf("no matching virtual key found")
 }
+
 // CountVirtualKeys returns the total number of keys matching the project filter.
 func CountVirtualKeys(ctx context.Context, db Queryer, projectID string) (int, error) {
 	var count int

@@ -26,16 +26,16 @@ type ReloadableConfig struct {
 // file is modified. It uses polling (stat-based) instead of filesystem events
 // to avoid external dependencies.
 type Watcher struct {
-	path      string
-	current   Config
-	onChange  func(old, new Config)
-	logger    *slog.Logger
-	interval  time.Duration
-	debounce  time.Duration
+	path       string
+	current    Config
+	onChange   func(old, new Config)
+	logger     *slog.Logger
+	interval   time.Duration
+	debounce   time.Duration
 	debounceMu sync.Mutex
 	lastReload time.Time
-	cancel    context.CancelFunc
-	closeOnce sync.Once
+	cancel     context.CancelFunc
+	closeOnce  sync.Once
 }
 
 // NewWatcher creates a config file watcher. The onChange callback is called
@@ -45,12 +45,12 @@ func NewWatcher(path string, initial Config, onChange func(old, new Config), log
 		logger = slog.Default()
 	}
 	return &Watcher{
-		path:      path,
-		current:   initial,
-		onChange:  onChange,
-		logger:    logger.With("component", "config_watcher"),
-		interval:  5 * time.Second,
-		debounce:  1 * time.Second,
+		path:     path,
+		current:  initial,
+		onChange: onChange,
+		logger:   logger.With("component", "config_watcher"),
+		interval: 5 * time.Second,
+		debounce: 1 * time.Second,
 	}
 }
 

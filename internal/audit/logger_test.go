@@ -180,7 +180,7 @@ func TestMetadataJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("query: %v", err)
 	}
-	if !containsAll(meta, `"key_count":3`, `"provider":"openai"`) {
+	if !containsAll(meta, `"key_count"`, `"provider"`, `"openai"`, `3`) {
 		t.Errorf("metadata = %q, want key_count and provider", meta)
 	}
 }

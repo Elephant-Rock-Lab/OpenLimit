@@ -8,7 +8,7 @@ const (
 	EventProjectDelete   = "project.delete"
 	EventKeyCreate       = "key.create"
 	EventKeyRevoke       = "key.revoke"
-	EventKeyRotate      = "key.rotate"
+	EventKeyRotate       = "key.rotate"
 	EventKeyUpdate       = "key.update"
 	EventKeyDecrypt      = "provider_key.decrypt"
 	EventAuthFailure     = "auth.failure"
@@ -20,8 +20,8 @@ const (
 	EventUserUpdate      = "user.update_role"
 	EventOIDCAuthSuccess = "oidc.auth_success"
 	EventOIDCAuthFailure = "oidc.auth_failure"
-	EventChatCompletion = "chat.completion"
-	EventEmbedding      = "embedding"
+	EventChatCompletion  = "chat.completion"
+	EventEmbedding       = "embedding"
 )
 
 // Event represents a single audit log entry.

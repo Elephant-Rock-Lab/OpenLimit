@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"openlimit/internal/auth"
 	"openlimit/internal/audit"
+	"openlimit/internal/auth"
 	"openlimit/internal/cache"
 	"openlimit/internal/errtypes"
 	"openlimit/internal/guardrails"
@@ -312,7 +312,7 @@ func (h *Handler) ExecuteGoverned(ctx context.Context, req openaischema.ChatComp
 				h.metrics.RecordGuardrailRedaction(result.StageName, "output", req.Model)
 				if len(resp.Choices) > 0 {
 					marshaled, _ := json.Marshal(result.Message)
-				resp.Choices[0].Message.Content = json.RawMessage(marshaled)
+					resp.Choices[0].Message.Content = json.RawMessage(marshaled)
 				}
 			default:
 				if h.metrics != nil {
@@ -561,7 +561,7 @@ func (h *Handler) checkInputGuardrails(ctx context.Context, req openaischema.Cha
 		for i, gm := range result.RedactedMessages {
 			if i < len(req.Messages) {
 				marshaled, _ := json.Marshal(gm.Content)
-			req.Messages[i].Content = json.RawMessage(marshaled)
+				req.Messages[i].Content = json.RawMessage(marshaled)
 			}
 		}
 	default:
@@ -694,13 +694,13 @@ func (h *Handler) postStreamGovernance(r *http.Request, req openaischema.ChatCom
 		}
 		resource := "model:" + req.Model
 		meta := map[string]any{
-			"provider":        target.Provider,
-			"provider_model":  target.Model,
-			"stream":          true,
-			"prompt_tokens":   promptTokens,
+			"provider":          target.Provider,
+			"provider_model":    target.Model,
+			"stream":            true,
+			"prompt_tokens":     promptTokens,
 			"completion_tokens": completionTokens,
-			"attempts":        attempts,
-			"duration_ms":     durationMS,
+			"attempts":          attempts,
+			"duration_ms":       durationMS,
 		}
 		if identity != nil {
 			meta["virtual_key_id"] = identity.VirtualKeyID

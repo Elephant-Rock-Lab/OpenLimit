@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"openlimit/internal/config"
 )
@@ -111,11 +112,18 @@ func TestOnKeysChanged_Panic_LoggedAsError(t *testing.T) {
 	}
 
 	// The panic recovery should have logged "panic in OnKeysChanged"
-	logOutput := buf.String()
-	if !strings.Contains(logOutput, "panic in OnKeysChanged") {
-		t.Errorf("expected log to contain 'panic in OnKeysChanged', got: %s", logOutput)
-	}
-	if !strings.Contains(logOutput, "test-panic-value") {
-		t.Errorf("expected log to contain panic value 'test-panic-value', got: %s", logOutput)
+	// Poll since the goroutine writes asynchronously.
+	deadline := time.After(3 * time.Second)
+	for {
+		logOutput := buf.String()
+		if strings.Contains(logOutput, "panic in OnKeysChanged") && strings.Contains(logOutput, "test-panic-value") {
+			break // pass
+		}
+		select {
+		case <-deadline:
+			t.Errorf("expected log to contain 'panic in OnKeysChanged' and 'test-panic-value', got: %s", buf.String())
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
 	}
 }

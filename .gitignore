@@ -36,3 +36,6 @@ sessions/
 
 # Build artifacts
 dist/
+
+# Craft Agent event logs
+events.jsonl

@@ -1,6 +1,8 @@
 package mcp
 
 import (
+	"encoding/json"
+	"sync"
 	"time"
 )
 
@@ -22,6 +24,7 @@ func (s TaskState) IsTerminal() bool {
 
 // A2ATask represents an A2A task.
 type A2ATask struct {
+	mu            sync.RWMutex   `json:"-"`
 	ID            string         `json:"id"`
 	ContextID     string         `json:"contextId"`
 	Status        TaskState      `json:"status"`
@@ -32,6 +35,16 @@ type A2ATask struct {
 	Model         string         `json:"model,omitempty"`
 	CreatedAt     time.Time      `json:"createdAt"`
 	UpdatedAt     time.Time      `json:"updatedAt"`
+}
+
+// MarshalJSON serializes the task under RLock to prevent data races
+// when worker goroutines mutate task fields concurrently.
+func (t *A2ATask) MarshalJSON() ([]byte, error) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	// Use an alias to avoid infinite recursion on MarshalJSON.
+	type Alias A2ATask
+	return json.Marshal((*Alias)(t))
 }
 
 // A2AMessage represents a message with role and parts (A2A spec v1.0).
@@ -51,12 +64,12 @@ type A2AMessage struct {
 //   - "file": file reference (FileURI, FileMIMEType, FileBytes)
 //   - "data": structured JSON data (Data field)
 type A2APart struct {
-	Type        string         `json:"type"`
-	Text        string         `json:"text,omitempty"`
-	FileURI     string         `json:"fileUri,omitempty"`     // URL or path to file
-	FileMIMEType string        `json:"mimeType,omitempty"`   // MIME type of file
-	FileBytes   string         `json:"bytes,omitempty"`      // Base64-encoded file content
-	Data        map[string]any  `json:"data,omitempty"`       // Structured key-value data
+	Type         string         `json:"type"`
+	Text         string         `json:"text,omitempty"`
+	FileURI      string         `json:"fileUri,omitempty"`  // URL or path to file
+	FileMIMEType string         `json:"mimeType,omitempty"` // MIME type of file
+	FileBytes    string         `json:"bytes,omitempty"`    // Base64-encoded file content
+	Data         map[string]any `json:"data,omitempty"`     // Structured key-value data
 }
 
 // A2AArtifact represents a task output artifact (A2A spec v1.0).

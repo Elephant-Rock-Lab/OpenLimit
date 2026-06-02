@@ -12,12 +12,12 @@ import (
 
 // catalogEntry describes a single validator in the native guardrail catalog.
 type catalogEntry struct {
-	Type         string              `json:"type"`
-	Name         string              `json:"name"`
-	Description  string              `json:"description"`
-	ConfigFields []catalogConfigField `json:"config_fields"`
-	ExampleConfig any                 `json:"example_config"`
-	Testable     bool                `json:"testable"`
+	Type          string               `json:"type"`
+	Name          string               `json:"name"`
+	Description   string               `json:"description"`
+	ConfigFields  []catalogConfigField `json:"config_fields"`
+	ExampleConfig any                  `json:"example_config"`
+	Testable      bool                 `json:"testable"`
 }
 
 type catalogConfigField struct {

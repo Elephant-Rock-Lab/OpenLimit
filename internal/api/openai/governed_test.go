@@ -836,9 +836,9 @@ func TestWriteGovernanceError_NilAvailableModels_OmitsField(t *testing.T) {
 func TestModelNames_ReturnsConfiguredModels(t *testing.T) {
 	cfg := config.Default()
 	cfg.Models = map[string]config.ModelConfig{
-		"zebra":   {Routes: []config.ModelRoute{{Provider: "mock", Model: "m1", Weight: 100}}},
-		"alpha":   {Routes: []config.ModelRoute{{Provider: "mock", Model: "m2", Weight: 100}}},
-		"mid":     {Routes: []config.ModelRoute{{Provider: "mock", Model: "m3", Weight: 100}}},
+		"zebra": {Routes: []config.ModelRoute{{Provider: "mock", Model: "m1", Weight: 100}}},
+		"alpha": {Routes: []config.ModelRoute{{Provider: "mock", Model: "m2", Weight: 100}}},
+		"mid":   {Routes: []config.ModelRoute{{Provider: "mock", Model: "m3", Weight: 100}}},
 	}
 	cfg.Providers = map[string]config.ProviderConfig{
 		"mock": {Type: "openai-compatible", BaseURL: "http://localhost:0", Keys: []config.ProviderKeyConfig{{ID: "k", Value: "v", Weight: 100}}},
@@ -1236,12 +1236,12 @@ func TestExecuteGoverned_ContextAwareBackoff(t *testing.T) {
 	h.cfg.Routing.Defaults.Retry.MaxMS = 10000
 
 	identity := &GovernanceIdentity{
-		ProjectID:    "proj-backoff",
-		VirtualKeyID: "vk-backoff",
-		KeyPrefix:    "sk-test",
-		Name:         "backoff-test",
+		ProjectID:     "proj-backoff",
+		VirtualKeyID:  "vk-backoff",
+		KeyPrefix:     "sk-test",
+		Name:          "backoff-test",
 		SkipRateLimit: true,
-		Source:       "virtual_key",
+		Source:        "virtual_key",
 	}
 
 	req := openaischema.ChatCompletionRequest{
@@ -1406,7 +1406,7 @@ func TestGuardrailRedaction_EmptyContent(t *testing.T) {
 		t.Fatalf("json.Marshal failed: %v", err)
 	}
 	if string(marshaled) != `""` {
-		t.Errorf("json.Marshal(\"\") = %s, want \"\\\"\\\"\"" , string(marshaled))
+		t.Errorf("json.Marshal(\"\") = %s, want \"\\\"\\\"\"", string(marshaled))
 	}
 	var unmarshalled string
 	if err := json.Unmarshal(marshaled, &unmarshalled); err != nil {
@@ -1604,9 +1604,10 @@ func TestGetBreaker_MostActiveSurvivesEviction(t *testing.T) {
 		t.Fatal("expected non-nil breaker")
 	}
 
-	// Now fill up to maxBreakers by inserting many new entries.
-	// The LRU eviction should remove "stale" first (oldest lastAccess).
-	for i := 0; i < maxBreakers; i++ {
+	// Insert exactly maxBreakers-1 new entries. With the 3 pre-existing entries,
+	// we'll have maxBreakers+2 total. Eviction removes 2 oldest (stale, mid).
+	// "fresh" has lastAccess=now which is >= all fillers, so it survives.
+	for i := 0; i < maxBreakers-1; i++ {
 		provider := fmt.Sprintf("filler-%d", i)
 		h.getBreaker(provider, "model", "")
 	}

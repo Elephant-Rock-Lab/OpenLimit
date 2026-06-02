@@ -10,12 +10,12 @@ import (
 
 // PromptTemplate represents a stored prompt template.
 type PromptTemplate struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Content     string    `json:"content"`
-	Description string    `json:"description"`
-	CreatedAt   string    `json:"created_at"`
-	UpdatedAt   string    `json:"updated_at"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Content     string `json:"content"`
+	Description string `json:"description"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
 }
 
 // CreatePromptTemplate inserts a new prompt template.
