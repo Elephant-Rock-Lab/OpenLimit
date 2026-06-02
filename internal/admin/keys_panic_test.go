@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -67,10 +68,12 @@ func TestOnKeysChanged_Panic_DoesNotCrashGateway(t *testing.T) {
 
 // TEST-58-01-02: OnKeysChanged panic is logged at Error level.
 func TestOnKeysChanged_Panic_LoggedAsError(t *testing.T) {
-	// Capture log output by checking that the panic value appears in logs.
-	// We use a custom slog handler to capture output.
+	// Use a mutex-protected buffer to avoid data races between the
+	// goroutine that logs (via slog) and this test goroutine that reads.
+	var mu sync.Mutex
 	var buf bytes.Buffer
-	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelError}))
+	safeWriter := &threadSafeWriter{mu: &mu, buf: &buf}
+	logger := slog.New(slog.NewTextHandler(safeWriter, &slog.HandlerOptions{Level: slog.LevelError}))
 	slog.SetDefault(logger)
 	defer slog.SetDefault(slog.Default())
 
@@ -112,18 +115,32 @@ func TestOnKeysChanged_Panic_LoggedAsError(t *testing.T) {
 	}
 
 	// The panic recovery should have logged "panic in OnKeysChanged"
-	// Poll since the goroutine writes asynchronously.
 	deadline := time.After(3 * time.Second)
 	for {
+		mu.Lock()
 		logOutput := buf.String()
+		mu.Unlock()
 		if strings.Contains(logOutput, "panic in OnKeysChanged") && strings.Contains(logOutput, "test-panic-value") {
 			break // pass
 		}
 		select {
 		case <-deadline:
-			t.Errorf("expected log to contain 'panic in OnKeysChanged' and 'test-panic-value', got: %s", buf.String())
+			t.Errorf("expected log to contain 'panic in OnKeysChanged' and 'test-panic-value', got: %s", logOutput)
 		default:
 			time.Sleep(10 * time.Millisecond)
 		}
 	}
+}
+
+// threadSafeWriter wraps a bytes.Buffer with a mutex for concurrent
+// writes (from slog) and reads (from test assertions).
+type threadSafeWriter struct {
+	mu  *sync.Mutex
+	buf *bytes.Buffer
+}
+
+func (w *threadSafeWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.Write(p)
 }
