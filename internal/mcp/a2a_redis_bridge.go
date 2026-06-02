@@ -31,8 +31,8 @@ type RedisTaskBridge struct {
 // bridgeMessage wraps an A2ATask with an origin field so subscribers can
 // skip messages they published themselves (loop prevention).
 type bridgeMessage struct {
-	Origin string  `json:"origin"`
-	Task   A2ATask `json:"task"`
+	Origin string   `json:"origin"`
+	Task   *A2ATask `json:"task"`
 }
 
 // NewRedisTaskBridge creates a Redis-backed bridge for cross-instance A2A task
@@ -77,7 +77,7 @@ func (b *RedisTaskBridge) Publish(task *A2ATask) {
 	}
 	msg := bridgeMessage{
 		Origin: b.instanceID,
-		Task:   *task,
+		Task:   task,
 	}
 	data, err := json.Marshal(msg)
 	if err != nil {
@@ -185,6 +185,6 @@ func (b *RedisTaskBridge) handleMessage(msg *goredis.Message) {
 
 	// Relay to local notifier so SSE watchers on this instance receive it
 	if b.notifier != nil {
-		b.notifier.Notify(&bm.Task)
+		notifier.Notify(bm.Task)
 	}
 }
