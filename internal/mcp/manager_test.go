@@ -291,10 +291,10 @@ func TestReconnect_CancelKillsOldListener(t *testing.T) {
 	oldCtx, oldCancel := context.WithCancel(context.Background())
 
 	state := &serverState{
-		name:       "test-cancel",
-		connected:  false,
+		name:        "test-cancel",
+		connected:   false,
 		cancelNotif: oldCancel,
-		client:     NewClient("test", "http://localhost:1", nil, 50*time.Millisecond, "test", slog.Default()),
+		client:      NewClient("test", "http://localhost:1", nil, 50*time.Millisecond, "test", slog.Default()),
 		config: config.MCPServerConfig{
 			Name:      "test-cancel",
 			URL:       "http://localhost:1",

@@ -86,7 +86,7 @@ func runBenchmark(logger *slog.Logger, totalRequests, concurrency int) (*Benchma
 	cfg := config.Default()
 	cfg.Server.Port = 0 // random port
 	cfg.Logging.Level = "error"
-	cfg.Auth.Enabled = false // no auth in benchmark
+	cfg.Auth.Enabled = false        // no auth in benchmark
 	cfg.Server.MaxBodySizeKB = 1024 // 1MB max body for benchmark
 	cfg.Providers = map[string]config.ProviderConfig{
 		"bench_provider": {

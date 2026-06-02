@@ -13,7 +13,6 @@ import (
 
 	"openlimit/internal/providers"
 	openaischema "openlimit/internal/schema/openai"
-
 )
 
 const defaultBaseURL = "https://api.cohere.com/v2"

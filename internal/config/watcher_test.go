@@ -173,12 +173,12 @@ func TestWatcher_DebouncesRapidChanges(t *testing.T) {
 
 func TestWatcher_ReloadableFieldsExtraction(t *testing.T) {
 	cfg := Config{
-		Logging: LoggingConfig{Level: "debug"},
+		Logging:    LoggingConfig{Level: "debug"},
 		Guardrails: GuardrailsConfig{Enabled: true},
-		Routing: RoutingConfig{Region: "us-east"},
-		Providers: map[string]ProviderConfig{"openai": {Type: "openai"}},
-		Models: map[string]ModelConfig{"gpt-4": {}},
-		Billing: BillingConfig{Prices: []PriceEntry{{Provider: "openai"}}},
+		Routing:    RoutingConfig{Region: "us-east"},
+		Providers:  map[string]ProviderConfig{"openai": {Type: "openai"}},
+		Models:     map[string]ModelConfig{"gpt-4": {}},
+		Billing:    BillingConfig{Prices: []PriceEntry{{Provider: "openai"}}},
 		// Non-reloadable:
 		Server:   ServerConfig{Port: 9090},
 		Database: DatabaseConfig{URL: "postgres://test"},
@@ -220,11 +220,11 @@ func TestWatcher_MergeReloadableOnlyTargetFields(t *testing.T) {
 	}
 
 	src := Config{
-		Server:   ServerConfig{Port: 9999},    // should NOT be applied
-		Database: DatabaseConfig{URL: "postgres://changed"}, // should NOT be applied
-		Redis:    RedisConfig{Addr: "redis://changed"},      // should NOT be applied
-		Logging:  LoggingConfig{Level: "debug"},              // SHOULD be applied
-		Guardrails: GuardrailsConfig{Enabled: true},          // SHOULD be applied
+		Server:     ServerConfig{Port: 9999},                  // should NOT be applied
+		Database:   DatabaseConfig{URL: "postgres://changed"}, // should NOT be applied
+		Redis:      RedisConfig{Addr: "redis://changed"},      // should NOT be applied
+		Logging:    LoggingConfig{Level: "debug"},             // SHOULD be applied
+		Guardrails: GuardrailsConfig{Enabled: true},           // SHOULD be applied
 	}
 
 	MergeReloadable(&dst, src)

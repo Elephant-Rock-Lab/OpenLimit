@@ -82,8 +82,8 @@ func TestExecutorMultiTurnWithDeadline(t *testing.T) {
 		return &openaischema.ChatCompletionResponse{
 			Choices: []openaischema.Choice{
 				{Message: openaischema.ChatMessage{
-					Role:    "assistant",
-					Content: []byte(`"calling tool"`),
+					Role:      "assistant",
+					Content:   []byte(`"calling tool"`),
 					ToolCalls: []byte(`[{"id":"call-1","type":"function","function":{"name":"mcp_test_tool","arguments":"{}"}}]`),
 				}},
 			},
@@ -101,9 +101,9 @@ func TestExecutorMultiTurnWithDeadline(t *testing.T) {
 	initialResp := &openaischema.ChatCompletionResponse{
 		Choices: []openaischema.Choice{
 			{Message: openaischema.ChatMessage{
-				Role:       "assistant",
-				Content:    []byte(`"use tool"`),
-				ToolCalls:  []byte(`[{"id":"call-1","type":"function","function":{"name":"mcp_test_tool","arguments":"{}"}}]`),
+				Role:      "assistant",
+				Content:   []byte(`"use tool"`),
+				ToolCalls: []byte(`[{"id":"call-1","type":"function","function":{"name":"mcp_test_tool","arguments":"{}"}}]`),
 			}},
 		},
 	}

@@ -209,11 +209,14 @@ func (h *A2AHandler) executeTask(taskID string) {
 	}()
 
 	// 3. Update to working
+	task.mu.Lock()
 	task.Status = TaskStateWorking
+	task.mu.Unlock()
 	h.store.Update(task)
 	h.notify(task)
 
 	// 4. Extract user text from history
+	task.mu.RLock()
 	var userText string
 	for _, msg := range task.History {
 		for _, part := range msg.Parts {
@@ -226,6 +229,7 @@ func (h *A2AHandler) executeTask(taskID string) {
 			break
 		}
 	}
+	task.mu.RUnlock()
 
 	// 5. Execute chat completion
 	execArgs := map[string]any{
@@ -247,6 +251,7 @@ func (h *A2AHandler) executeTask(taskID string) {
 	duration := time.Since(start)
 
 	// 6. Update to terminal state
+	task.mu.Lock()
 	if err != nil {
 		var govErr GovernanceBlockedError
 		var failText string
@@ -260,10 +265,10 @@ func (h *A2AHandler) executeTask(taskID string) {
 		}
 		if failText != "" {
 			failMsg := A2AMessage{
-				Role:       "agent",
-				Parts:      []A2APart{{Type: "text", Text: failText}},
-				MessageID:  newMessageID(),
-				ContextID:  task.ContextID,
+				Role:      "agent",
+				Parts:     []A2APart{{Type: "text", Text: failText}},
+				MessageID: newMessageID(),
+				ContextID: task.ContextID,
 			}
 			task.Status = TaskStateFailed
 			task.StatusMessage = &failMsg
@@ -277,10 +282,10 @@ func (h *A2AHandler) executeTask(taskID string) {
 			LastChunk: true,
 		})
 		agentMsg := A2AMessage{
-			Role:       "agent",
-			Parts:      []A2APart{{Type: "text", Text: chatResult.Content}},
-			MessageID:  newMessageID(),
-			ContextID:  task.ContextID,
+			Role:      "agent",
+			Parts:     []A2APart{{Type: "text", Text: chatResult.Content}},
+			MessageID: newMessageID(),
+			ContextID: task.ContextID,
 		}
 		task.StatusMessage = &agentMsg
 		task.History = append(task.History, agentMsg)
@@ -289,6 +294,7 @@ func (h *A2AHandler) executeTask(taskID string) {
 		task.UpdatedAt = time.Now()
 		h.logger.Info("A2A task completed", "task_id", taskID, "model", chatResult.Model, "duration", duration)
 	}
+	task.mu.Unlock()
 
 	h.store.Update(task)
 	h.notify(task)
@@ -648,7 +654,9 @@ func (h *A2AHandler) handleMessageSendBlockingWithMode(ctx context.Context, task
 	}
 
 	// Update to working
+	task.mu.Lock()
 	task.Status = TaskStateWorking
+	task.mu.Unlock()
 	h.store.Update(task)
 
 	// Execute chat completion synchronously
@@ -667,6 +675,7 @@ func (h *A2AHandler) handleMessageSendBlockingWithMode(ctx context.Context, task
 	}
 
 	chatResult, err := h.chatExecutor(ctx, "a2a", execArgs)
+	task.mu.Lock()
 	if err != nil {
 		var govErr GovernanceBlockedError
 		var failText string
@@ -676,15 +685,16 @@ func (h *A2AHandler) handleMessageSendBlockingWithMode(ctx context.Context, task
 			failText = err.Error()
 		}
 		failMsg := A2AMessage{
-			Role:       "agent",
-			Parts:      []A2APart{{Type: "text", Text: failText}},
-			MessageID:  newMessageID(),
-			ContextID:  task.ContextID,
+			Role:      "agent",
+			Parts:     []A2APart{{Type: "text", Text: failText}},
+			MessageID: newMessageID(),
+			ContextID: task.ContextID,
 		}
 		task.Status = TaskStateFailed
 		task.StatusMessage = &failMsg
 		task.History = append(task.History, failMsg)
 		task.UpdatedAt = time.Now()
+		task.mu.Unlock()
 		h.store.Update(task)
 		h.logger.Error("A2A task failed", "task_id", task.ID, "error", err)
 		return h.marshalTask(task)
@@ -697,17 +707,17 @@ func (h *A2AHandler) handleMessageSendBlockingWithMode(ctx context.Context, task
 	})
 	// Append agent response to history for multi-turn continuity
 	agentMsg := A2AMessage{
-		Role:       "agent",
-		Parts:      []A2APart{{Type: "text", Text: chatResult.Content}},
-		MessageID:  newMessageID(),
-		ContextID:  task.ContextID,
+		Role:      "agent",
+		Parts:     []A2APart{{Type: "text", Text: chatResult.Content}},
+		MessageID: newMessageID(),
+		ContextID: task.ContextID,
 	}
 	task.History = append(task.History, agentMsg)
 	task.StatusMessage = &agentMsg
 	task.Status = TaskStateCompleted
 	task.Model = chatResult.Model
 	task.UpdatedAt = time.Now()
-	h.store.Update(task)
+	task.mu.Unlock()
 
 	h.logger.Info("A2A task completed (blocking)", "task_id", task.ID, "model", chatResult.Model)
 	return h.marshalTask(task)
@@ -795,7 +805,9 @@ func (h *A2AHandler) handleTasksCancel(req Request) (json.RawMessage, *RPCError)
 	}
 
 	// Directly update to canceled (for submitted tasks or as a fallback)
+	task.mu.Lock()
 	task.Status = TaskStateCanceled
+	task.mu.Unlock()
 	h.store.Update(task)
 	h.notify(task)
 

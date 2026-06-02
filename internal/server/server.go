@@ -2,9 +2,9 @@ package server
 
 import (
 	"context"
-	"fmt"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -25,7 +25,6 @@ import (
 	"openlimit/internal/metrics"
 	oidcPkg "openlimit/internal/oidc"
 	"openlimit/internal/providers"
-	"openlimit/internal/replay"
 	anthropicadapter "openlimit/internal/providers/anthropic"
 	azureadapter "openlimit/internal/providers/azure"
 	bedrockadapter "openlimit/internal/providers/bedrock"
@@ -36,6 +35,7 @@ import (
 	openaiadapter "openlimit/internal/providers/openai"
 	vertexadapter "openlimit/internal/providers/vertex"
 	rediscli "openlimit/internal/redis"
+	"openlimit/internal/replay"
 	"openlimit/internal/routing"
 	openaischema "openlimit/internal/schema/openai"
 	"openlimit/internal/store"
@@ -282,9 +282,9 @@ func NewRuntime(cfg config.Config, logger *slog.Logger, db *sql.DB) *Runtime {
 			entries := make([]admin.CostEntryJSON, len(routing.CostCatalog))
 			for i, e := range routing.CostCatalog {
 				entries[i] = admin.CostEntryJSON{
-					Provider:   e.Provider,
-					Model:      e.Model,
-					InputPer1M: e.InputPer1M,
+					Provider:    e.Provider,
+					Model:       e.Model,
+					InputPer1M:  e.InputPer1M,
 					OutputPer1M: e.OutputPer1M,
 				}
 			}

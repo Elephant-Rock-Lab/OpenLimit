@@ -101,8 +101,8 @@ func TestRedisBridge_HandleMessageRelaysToNotifier(t *testing.T) {
 	payload, _ := json.Marshal(remoteMsg)
 
 	bridge.handleMessage(&goredis.Message{
-		Channel:  "test:a2a:tasks",
-		Payload:  string(payload),
+		Channel: "test:a2a:tasks",
+		Payload: string(payload),
 	})
 
 	// Should receive the relayed task via local notifier
@@ -149,8 +149,8 @@ func TestRedisBridge_HandleMessageSkipsSameOrigin(t *testing.T) {
 	payload, _ := json.Marshal(selfMsg)
 
 	bridge.handleMessage(&goredis.Message{
-		Channel:  "test:a2a:tasks",
-		Payload:  string(payload),
+		Channel: "test:a2a:tasks",
+		Payload: string(payload),
 	})
 
 	// Should NOT receive anything — message from self should be filtered

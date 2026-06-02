@@ -112,8 +112,8 @@ func extractIssuer(rawToken string) (string, error) {
 // Supports both single-provider and multi-tenant modes.
 type Pool struct {
 	mu     sync.RWMutex
-	single *Provider       // single provider mode
-	multi  *MultiProvider  // multi-tenant mode
+	single *Provider      // single provider mode
+	multi  *MultiProvider // multi-tenant mode
 }
 
 // NewPool creates a new OIDC pool with either single or multi-tenant mode.

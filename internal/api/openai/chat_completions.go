@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"openlimit/internal/auth"
 	"openlimit/internal/audit"
+	"openlimit/internal/auth"
 	"openlimit/internal/billing"
 	"openlimit/internal/cache"
 	"openlimit/internal/circuit"

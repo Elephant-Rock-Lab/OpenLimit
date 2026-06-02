@@ -23,8 +23,8 @@ func TestCostCatalog_MinSize(t *testing.T) {
 func TestSelectByCost_PicksCheapest(t *testing.T) {
 	r := &Router{strategy: "cost"}
 	targets := []providers.Target{
-		{Provider: "openai", Model: "gpt-4o", Region: "us-east"},       // avgCost = 6.25
-		{Provider: "deepseek", Model: "deepseek-chat", Region: "eu"},   // avgCost = 0.685
+		{Provider: "openai", Model: "gpt-4o", Region: "us-east"},                 // avgCost = 6.25
+		{Provider: "deepseek", Model: "deepseek-chat", Region: "eu"},             // avgCost = 0.685
 		{Provider: "anthropic", Model: "claude-sonnet-4-20250514", Region: "us"}, // avgCost = 9.0
 	}
 	selected := r.selectByCost(targets, "gpt-4")
@@ -217,18 +217,18 @@ func TestSelectByLatency_Unchanged(t *testing.T) {
 func TestSelectSmart_HealthyBeatsCheap(t *testing.T) {
 	// Use weights where health dominates
 	r := &Router{
-		strategy: "smart",
+		strategy:     "smart",
 		smartWeights: SmartWeights{Cost: 0.1, Latency: 0.1, Health: 0.8},
 		latencyCache: nil,
 		health: &selectiveHealthChecker{
 			healthy: map[string]bool{
-				"openai:gpt-4o:us": false,   // unhealthy
-				"deepseek:deepseek-chat:eu": true, // healthy
+				"openai:gpt-4o:us":          false, // unhealthy
+				"deepseek:deepseek-chat:eu": true,  // healthy
 			},
 		},
 	}
 	targets := []providers.Target{
-		{Provider: "openai", Model: "gpt-4o", Region: "us"},        // unhealthy, expensive
+		{Provider: "openai", Model: "gpt-4o", Region: "us"},          // unhealthy, expensive
 		{Provider: "deepseek", Model: "deepseek-chat", Region: "eu"}, // healthy, cheap
 	}
 	selected := r.selectSmart(targets, "gpt-4o")
@@ -255,8 +255,8 @@ func TestSelectByCost_Normalization(t *testing.T) {
 	// Verify that cost strategy selects the cheapest among known entries
 	r := &Router{strategy: "cost"}
 	targets := []providers.Target{
-		{Provider: "openai", Model: "o3", Region: "us"},            // avgCost=25.0 (most expensive)
-		{Provider: "openai", Model: "gpt-4.1-nano", Region: "eu"},  // avgCost=0.25 (cheapest)
+		{Provider: "openai", Model: "o3", Region: "us"},           // avgCost=25.0 (most expensive)
+		{Provider: "openai", Model: "gpt-4.1-nano", Region: "eu"}, // avgCost=0.25 (cheapest)
 	}
 	selected := r.selectByCost(targets, "o3")
 	if selected.Model != "gpt-4.1-nano" {
@@ -270,13 +270,13 @@ func TestSelectByCost_Normalization(t *testing.T) {
 func TestSelectSmart_CustomWeights(t *testing.T) {
 	// Cost-only weights (latency and health zeroed)
 	r := &Router{
-		strategy: "smart",
+		strategy:     "smart",
 		smartWeights: SmartWeights{Cost: 1.0, Latency: 0.0, Health: 0.0},
 		latencyCache: nil,
-		health: &staticHealthChecker{healthy: false}, // all unhealthy, but health weight=0
+		health:       &staticHealthChecker{healthy: false}, // all unhealthy, but health weight=0
 	}
 	targets := []providers.Target{
-		{Provider: "openai", Model: "gpt-4o", Region: "us"},       // expensive
+		{Provider: "openai", Model: "gpt-4o", Region: "us"},          // expensive
 		{Provider: "deepseek", Model: "deepseek-chat", Region: "eu"}, // cheap
 	}
 	selected := r.selectSmart(targets, "gpt-4o")
@@ -459,16 +459,16 @@ func TestSmartRouting_StrictOrdering_ThreeProviders(t *testing.T) {
 		smartWeights: DefaultSmartWeights(), // Cost=0.4, Latency=0.4, Health=0.2
 		health: &selectiveHealthChecker{
 			healthy: map[string]bool{
-				"deepseek:deepseek-chat:eu":   true,  // healthy
-				"openai:gpt-4o:us-east":       true,  // healthy
+				"deepseek:deepseek-chat:eu":             true,  // healthy
+				"openai:gpt-4o:us-east":                 true,  // healthy
 				"anthropic:claude-sonnet-4-20250514:us": false, // unhealthy
 			},
 		},
 		latencyCache: &LatencyCache{
 			entries: map[string]time.Duration{
-				"deepseek:deepseek-chat:eu":                              50 * time.Millisecond,  // fastest
-				"openai:gpt-4o:us-east":                                  200 * time.Millisecond, // mid
-				"anthropic:claude-sonnet-4-20250514:us":                   800 * time.Millisecond, // slowest
+				"deepseek:deepseek-chat:eu":             50 * time.Millisecond,  // fastest
+				"openai:gpt-4o:us-east":                 200 * time.Millisecond, // mid
+				"anthropic:claude-sonnet-4-20250514:us": 800 * time.Millisecond, // slowest
 			},
 			updated: time.Now(), // fresh TTL
 			ttl:     time.Hour,
@@ -476,9 +476,9 @@ func TestSmartRouting_StrictOrdering_ThreeProviders(t *testing.T) {
 	}
 
 	targets := []providers.Target{
-		{Provider: "openai", Model: "gpt-4o", Region: "us-east"},                    // mid cost, mid latency, healthy
-		{Provider: "deepseek", Model: "deepseek-chat", Region: "eu"},              // cheap, fast, healthy
-		{Provider: "anthropic", Model: "claude-sonnet-4-20250514", Region: "us"},   // expensive, slow, unhealthy
+		{Provider: "openai", Model: "gpt-4o", Region: "us-east"},                 // mid cost, mid latency, healthy
+		{Provider: "deepseek", Model: "deepseek-chat", Region: "eu"},             // cheap, fast, healthy
+		{Provider: "anthropic", Model: "claude-sonnet-4-20250514", Region: "us"}, // expensive, slow, unhealthy
 	}
 
 	selected := r.selectSmart(targets, "gpt-4o")
@@ -506,7 +506,7 @@ func TestSmartRouting_CostOnlyFallback_NoLatencyData(t *testing.T) {
 	}
 
 	targets := []providers.Target{
-		{Provider: "openai", Model: "gpt-4o", Region: "us-east"},       // avgCost=6.25
+		{Provider: "openai", Model: "gpt-4o", Region: "us-east"},      // avgCost=6.25
 		{Provider: "deepseek", Model: "deepseek-chat", Region: "eu"},  // avgCost=0.685
 		{Provider: "openai", Model: "gpt-4o-mini", Region: "us-west"}, // avgCost=0.375
 	}
@@ -524,12 +524,12 @@ func TestSmartRouting_CostOnlyFallback_NoLatencyData(t *testing.T) {
 func TestSmartRouting_HealthScoreDifferential(t *testing.T) {
 	// Two targets with identical cost and latency, different health
 	r := &Router{
-		strategy: "smart",
+		strategy:     "smart",
 		smartWeights: SmartWeights{Cost: 0.34, Latency: 0.33, Health: 0.33},
 		health: &selectiveHealthChecker{
 			healthy: map[string]bool{
-				"deepseek:deepseek-chat:us": true,   // healthScore = 1.0
-				"deepseek:deepseek-chat:eu": false,  // healthScore = 0.0
+				"deepseek:deepseek-chat:us": true,  // healthScore = 1.0
+				"deepseek:deepseek-chat:eu": false, // healthScore = 0.0
 			},
 		},
 		latencyCache: &LatencyCache{

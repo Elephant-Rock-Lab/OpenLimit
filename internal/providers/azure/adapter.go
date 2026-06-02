@@ -13,7 +13,6 @@ import (
 
 	"openlimit/internal/providers"
 	openaischema "openlimit/internal/schema/openai"
-
 )
 
 // Compile-time check that Adapter implements providers.Adapter.
