@@ -46,8 +46,8 @@ func TestManagerServerStateMutex(t *testing.T) {
 			}
 			atomic.AddInt32(&iterations, 1)
 			state.connected = true
-			state.mu.Unlock()
 			atomic.AddInt32(&concurrentCount, -1)
+			state.mu.Unlock()
 		}()
 	}
 	wg.Wait()

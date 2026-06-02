@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -138,7 +139,7 @@ func TestViewerSweep(t *testing.T) {
 
 	// Write endpoints should return 403
 	for _, ep := range writeEndpoints {
-		var body *bytes.Buffer
+		var body io.Reader
 		if ep.body != "" {
 			body = bytes.NewBufferString(ep.body)
 		}
