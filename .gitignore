@@ -37,5 +37,23 @@ sessions/
 # Build artifacts
 dist/
 
-# Craft Agent event logs
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# Python packaging
+*.egg-info/
+
+# Craft Agent / AIV workspace files
+.claude-plugin/
+config.json
+views.json
 events.jsonl
+
+# AIV framework and batch history (tooling, not product)
+AIV_FRAMEWORK_*.md
+COMPREHENSIVE_REPORT.md
+STATE.md
+RELEASE.md
+docs/aiv/
