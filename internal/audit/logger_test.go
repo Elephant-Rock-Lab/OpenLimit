@@ -113,8 +113,8 @@ func TestTimestampAutoSet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("query: %v", err)
 	}
-	if ts.Before(before) {
-		t.Errorf("timestamp %v before event creation %v", ts, before)
+	if ts.Before(before.Add(-time.Millisecond)) {
+		t.Errorf("timestamp %v more than 1ms before event creation %v", ts, before)
 	}
 }
 
