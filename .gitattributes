@@ -1,0 +1,21 @@
+# Go files must use LF — CRLF causes gofmt failures on Linux CI
+*.go text eol=lf
+
+# YAML workflows must use LF
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Shell scripts
+*.sh text eol=lf
+
+# Markdown docs
+*.md text eol=lf
+
+# JSON files
+*.json text eol=lf
+
+# SQL files
+*.sql text eol=lf
+
+# TOML configs
+*.toml text eol=lf
