@@ -9,8 +9,8 @@ import (
 // mockGuardrail is a test GuardrailPlugin that uppercases text.
 type mockGuardrail struct{}
 
-func (m *mockGuardrail) Name() string                { return "mock-guardrail" }
-func (m *mockGuardrail) Type() string                { return "guardrail" }
+func (m *mockGuardrail) Name() string                     { return "mock-guardrail" }
+func (m *mockGuardrail) Type() string                     { return "guardrail" }
 func (m *mockGuardrail) Init(config map[string]any) error { return nil }
 func (m *mockGuardrail) ProcessInput(ctx GuardrailContext) (GuardrailContext, error) {
 	ctx.Message = "IN:" + ctx.Message

@@ -123,8 +123,8 @@ func (h *Handler) createKey(w http.ResponseWriter, r *http.Request) {
 			defer func() {
 				if r := recover(); r != nil {
 					slog.Default().Error("panic in OnKeysChanged", "error", r)
-					}
-				}()
+				}
+			}()
 			h.OnKeysChanged()
 		}()
 	}
@@ -207,8 +207,8 @@ func (h *Handler) revokeKey(w http.ResponseWriter, r *http.Request) {
 			defer func() {
 				if r := recover(); r != nil {
 					slog.Default().Error("panic in OnKeysChanged", "error", r)
-					}
-				}()
+				}
+			}()
 			h.OnKeysChanged()
 		}()
 	}
@@ -287,8 +287,8 @@ func (h *Handler) updateKey(w http.ResponseWriter, r *http.Request) {
 			defer func() {
 				if r := recover(); r != nil {
 					slog.Default().Error("panic in OnKeysChanged", "error", r)
-					}
-				}()
+				}
+			}()
 			h.OnKeysChanged()
 		}()
 	}
@@ -358,8 +358,8 @@ func (h *Handler) patchKey(w http.ResponseWriter, r *http.Request) {
 			defer func() {
 				if r := recover(); r != nil {
 					slog.Default().Error("panic in OnKeysChanged", "error", r)
-					}
-				}()
+				}
+			}()
 			h.OnKeysChanged()
 		}()
 	}
@@ -435,8 +435,8 @@ func (h *Handler) rotateKey(w http.ResponseWriter, r *http.Request) {
 			defer func() {
 				if r := recover(); r != nil {
 					slog.Default().Error("panic in OnKeysChanged", "error", r)
-					}
-				}()
+				}
+			}()
 			h.OnKeysChanged()
 		}()
 	}

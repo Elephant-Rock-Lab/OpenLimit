@@ -15,9 +15,9 @@ import (
 // Supports both standalone and cluster modes.
 type Client struct {
 	client  UniversalClient // supports both standalone and cluster
-	healthy  atomic.Bool
-	logger   *slog.Logger
-	cancel   context.CancelFunc
+	healthy atomic.Bool
+	logger  *slog.Logger
+	cancel  context.CancelFunc
 }
 
 // UniversalClient is an interface satisfied by both *goredis.Client and *goredis.ClusterClient.

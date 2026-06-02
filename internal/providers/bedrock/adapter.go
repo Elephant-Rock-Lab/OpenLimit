@@ -13,7 +13,6 @@ import (
 
 	"openlimit/internal/providers"
 	openaischema "openlimit/internal/schema/openai"
-
 )
 
 // Adapter implements providers.Adapter for AWS Bedrock using the Converse API.

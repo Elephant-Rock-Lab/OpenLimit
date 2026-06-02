@@ -170,9 +170,9 @@ func LookupDefault(name string) (ProviderDefault, bool) {
 // ApplyDefaults fills in missing fields from the provider registry.
 // User-provided config always takes precedence (AR-01).
 // Provider type resolution order (AR-02):
-//   1. config type field (if non-empty)
-//   2. registry BaseType (if name is in registry)
-//   3. fallback to "openai-compatible" (AR-03)
+//  1. config type field (if non-empty)
+//  2. registry BaseType (if name is in registry)
+//  3. fallback to "openai-compatible" (AR-03)
 func ApplyDefaults(name string, cfg map[string]interface{}) map[string]interface{} {
 	result := make(map[string]interface{}, len(cfg))
 	for k, v := range cfg {

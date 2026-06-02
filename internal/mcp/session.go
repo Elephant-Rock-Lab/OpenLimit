@@ -14,7 +14,7 @@ import (
 type Session struct {
 	ID        string
 	CreatedAt time.Time
-	lastSeen  atomic.Int64 // UnixNano — safe to read/write under RLock
+	lastSeen  atomic.Int64         // UnixNano — safe to read/write under RLock
 	notifier  chan json.RawMessage // buffered channel for SSE notifications
 }
 
@@ -50,7 +50,7 @@ func (s *SessionStore) CreateOrGet(id string) *Session {
 	if id != "" {
 		if sess, ok := s.sessions[id]; ok {
 			sess.lastSeen.Store(time.Now().UnixNano())
-		return sess
+			return sess
 		}
 	}
 

@@ -860,7 +860,7 @@ func TestA2ATaskStreamNotFound(t *testing.T) {
 
 // mockBridge tracks Publish calls for verification.
 type mockBridge struct {
-	mu       sync.Mutex
+	mu        sync.Mutex
 	published []*A2ATask
 }
 
@@ -937,7 +937,7 @@ func TestA2ASSEReceivesBridgeRelay(t *testing.T) {
 	// Create a task first via non-blocking send
 	payload := map[string]any{
 		"message": map[string]any{
-			"role": "user",
+			"role":  "user",
 			"parts": []any{map[string]any{"type": "text", "text": "hello"}},
 		},
 		"returnImmediately": true,

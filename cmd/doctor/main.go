@@ -12,10 +12,10 @@ import (
 
 // CheckResult holds the result of a single diagnostic check.
 type CheckResult struct {
-	Name     string
-	Status   string // "PASS", "FAIL", "WARN"
-	Message  string
-	Suggest  string // actionable suggestion for FAIL/WARN
+	Name    string
+	Status  string // "PASS", "FAIL", "WARN"
+	Message string
+	Suggest string // actionable suggestion for FAIL/WARN
 }
 
 func main() {

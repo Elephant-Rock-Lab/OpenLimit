@@ -131,4 +131,3 @@ func TestRegistry_AllEntriesHaveValidType(t *testing.T) {
 }
 
 // grok and xai intentionally share the same BaseURL (alias). No duplicate check.
-

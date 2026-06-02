@@ -31,8 +31,8 @@ type RedisTaskBridge struct {
 // bridgeMessage wraps an A2ATask with an origin field so subscribers can
 // skip messages they published themselves (loop prevention).
 type bridgeMessage struct {
-	Origin     string   `json:"origin"`
-	Task       A2ATask  `json:"task"`
+	Origin string  `json:"origin"`
+	Task   A2ATask `json:"task"`
 }
 
 // NewRedisTaskBridge creates a Redis-backed bridge for cross-instance A2A task

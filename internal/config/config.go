@@ -80,7 +80,7 @@ type OIDCConfig struct {
 	DefaultRole  string `yaml:"default_role"`
 	JWKSCacheTTL int    `yaml:"jwks_cache_ttl_seconds"`
 	// Multi-tenant: additional providers (when set, Issuer/Audience above is provider[0])
-	Providers    []OIDCProviderConfig `yaml:"providers"`
+	Providers []OIDCProviderConfig `yaml:"providers"`
 }
 
 type OIDCProviderConfig struct {
@@ -91,8 +91,8 @@ type OIDCProviderConfig struct {
 }
 
 type BillingConfig struct {
-	Prices       []PriceEntry `yaml:"prices"`
-	FailClosed   bool         `yaml:"fail_closed"` // when true, DB errors cause budget checks to reject requests
+	Prices     []PriceEntry `yaml:"prices"`
+	FailClosed bool         `yaml:"fail_closed"` // when true, DB errors cause budget checks to reject requests
 }
 
 // DeepCopy creates a deep copy of the Config struct.

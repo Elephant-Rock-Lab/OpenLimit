@@ -113,15 +113,15 @@ func TestFormatResult_ContainsPercentiles(t *testing.T) {
 	// TEST-43-01-04: FormatResults produces table with percentile labels
 	result := &BenchmarkResult{
 		TotalRequests:  100,
-		Concurrency:   10,
-		Duration:      1 * time.Second,
-		P50:           5 * time.Millisecond,
-		P95:           10 * time.Millisecond,
-		P99:           15 * time.Millisecond,
-		Min:           2 * time.Millisecond,
-		Max:           20 * time.Millisecond,
+		Concurrency:    10,
+		Duration:       1 * time.Second,
+		P50:            5 * time.Millisecond,
+		P95:            10 * time.Millisecond,
+		P99:            15 * time.Millisecond,
+		Min:            2 * time.Millisecond,
+		Max:            20 * time.Millisecond,
 		RequestsPerSec: 100,
-		Errors:        0,
+		Errors:         0,
 	}
 
 	output := formatResult(result)

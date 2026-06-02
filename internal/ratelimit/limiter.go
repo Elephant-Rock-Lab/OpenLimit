@@ -7,7 +7,7 @@ import (
 
 // bucketEntry wraps a Bucket with last-access metadata for eviction.
 type bucketEntry struct {
-	bucket    *Bucket
+	bucket     *Bucket
 	lastAccess time.Time
 }
 
