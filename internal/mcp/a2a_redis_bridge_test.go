@@ -42,7 +42,7 @@ func TestRedisBridge_PublishSerializesAndPublishes(t *testing.T) {
 
 	msg := bridgeMessage{
 		Origin: bridge.instanceID,
-		Task:   *task,
+		Task:   task,
 	}
 	data, err := json.Marshal(msg)
 	if err != nil {
@@ -92,7 +92,7 @@ func TestRedisBridge_HandleMessageRelaysToNotifier(t *testing.T) {
 	// Simulate a message from a remote instance
 	remoteMsg := bridgeMessage{
 		Origin: "instance-B",
-		Task: A2ATask{
+		Task: &A2ATask{
 			ID:     "task_remote1",
 			Status: TaskStateCompleted,
 			Model:  "gpt-4",
@@ -141,7 +141,7 @@ func TestRedisBridge_HandleMessageSkipsSameOrigin(t *testing.T) {
 	// Simulate a message from the SAME instance
 	selfMsg := bridgeMessage{
 		Origin: "instance-A", // same as bridge.instanceID
-		Task: A2ATask{
+		Task: &A2ATask{
 			ID:     "task_self",
 			Status: TaskStateWorking,
 		},

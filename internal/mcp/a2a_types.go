@@ -23,8 +23,29 @@ func (s TaskState) IsTerminal() bool {
 }
 
 // A2ATask represents an A2A task.
+// The mu field protects concurrent access when worker goroutines mutate
+// task fields while HTTP handlers serialize for responses. Use Snapshot()
+// for safe serialization, and Lock/Unlock around mutations.
 type A2ATask struct {
 	mu            sync.RWMutex   `json:"-"`
+	ID            string         `json:"id"`
+	ContextID     string         `json:"contextId"`
+	Status        TaskState      `json:"status"`
+	StatusMessage *A2AMessage    `json:"statusMessage,omitempty"`
+	History       []A2AMessage   `json:"history"`
+	Artifacts     []A2AArtifact  `json:"artifacts"`
+	Metadata      map[string]any `json:"metadata,omitempty"`
+	Model         string         `json:"model,omitempty"`
+	CreatedAt     time.Time      `json:"createdAt"`
+	UpdatedAt     time.Time      `json:"updatedAt"`
+}
+
+// a2TaskAlias is used for JSON marshaling without copying the mutex.
+// It mirrors A2ATask fields but omits sync.RWMutex.
+type a2TaskAlias A2ATask
+
+// a2TaskJSON is the concrete struct used for serialization.
+type a2TaskJSON struct {
 	ID            string         `json:"id"`
 	ContextID     string         `json:"contextId"`
 	Status        TaskState      `json:"status"`
@@ -42,9 +63,18 @@ type A2ATask struct {
 func (t *A2ATask) MarshalJSON() ([]byte, error) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	// Use an alias to avoid infinite recursion on MarshalJSON.
-	type Alias A2ATask
-	return json.Marshal((*Alias)(t))
+	return json.Marshal(a2TaskJSON{
+		ID:            t.ID,
+		ContextID:     t.ContextID,
+		Status:        t.Status,
+		StatusMessage: t.StatusMessage,
+		History:       t.History,
+		Artifacts:     t.Artifacts,
+		Metadata:      t.Metadata,
+		Model:         t.Model,
+		CreatedAt:     t.CreatedAt,
+		UpdatedAt:     t.UpdatedAt,
+	})
 }
 
 // A2AMessage represents a message with role and parts (A2A spec v1.0).
