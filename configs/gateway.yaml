@@ -76,3 +76,13 @@ models:
       - provider: ollama
         model: llama3.1
         weight: 100
+
+# Schema-Budget Coupling: prune tool schemas based on query relevance
+# and context window budget. Default: disabled.
+mcp:
+  sbc:
+    enabled: false
+    mode: "off"           # "off" | "hybrid" | "evict"
+    budget_tokens: 32000  # context window budget (0 = use TPM headroom)
+    min_tools: 8          # never prune below this count
+    fallback: false       # retry with all tools on text-only early turns

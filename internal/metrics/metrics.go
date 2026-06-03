@@ -60,6 +60,13 @@ type Collector struct {
 	// Phase 7C metrics
 	gatewayErrorsTotal *prometheus.CounterVec
 
+	// SBC metrics (Schema-Budget Coupling)
+	sbcToolsOffered   *prometheus.GaugeVec
+	sbcToolsSelected  *prometheus.GaugeVec
+	sbcTokensSaved    *prometheus.CounterVec
+	sbcPruneDuration  *prometheus.HistogramVec
+	sbcFallbackTriggers *prometheus.CounterVec
+
 	// BATCH-50: In-memory guardrail stats (work without Prometheus)
 	grBlocks   sync.Map // map[key]*atomic.Int64  key="stage|direction"
 	grRedacts  sync.Map // map[key]*atomic.Int64  key="stage|direction"
@@ -259,6 +266,38 @@ func NewCollector(enabled bool) *Collector {
 		Help:      "Total gateway errors by type and API source",
 	}, []string{"type", "source"})
 
+	// SBC metrics
+	c.sbcToolsOffered = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: namespace,
+		Name:      "sbc_tools_offered",
+		Help:      "Number of tools before SBC pruning",
+	}, []string{"mode", "pressure"})
+
+	c.sbcToolsSelected = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: namespace,
+		Name:      "sbc_tools_selected",
+		Help:      "Number of tools after SBC pruning",
+	}, []string{"mode", "pressure"})
+
+	c.sbcTokensSaved = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace,
+		Name:      "sbc_tokens_saved_total",
+		Help:      "Estimated prompt tokens saved by SBC pruning",
+	}, []string{"mode"})
+
+	c.sbcPruneDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: namespace,
+		Name:      "sbc_prune_duration_seconds",
+		Help:      "SBC pruning latency in seconds",
+		Buckets:   []float64{0.00001, 0.00005, 0.0001, 0.0005, 0.001, 0.005, 0.01},
+	}, []string{"mode"})
+
+	c.sbcFallbackTriggers = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace,
+		Name:      "sbc_fallback_triggers_total",
+		Help:      "Number of times SBC fallback heuristic triggered",
+	}, []string{"mode"})
+
 	prometheus.MustRegister(
 		c.requestsTotal,
 		c.requestDuration,
@@ -289,6 +328,13 @@ func NewCollector(enabled bool) *Collector {
 		c.providerRegionDuration,
 		c.residencyFilterTotal,
 		c.gatewayErrorsTotal,
+
+		// SBC metrics
+		c.sbcToolsOffered,
+		c.sbcToolsSelected,
+		c.sbcTokensSaved,
+		c.sbcPruneDuration,
+		c.sbcFallbackTriggers,
 	)
 
 	return c
@@ -595,6 +641,25 @@ func (c *Collector) RecordAuditEvent(eventType, outcome string) {
 		return
 	}
 	c.auditEvents.WithLabelValues(eventType, outcome).Inc()
+}
+
+// RecordSBCPruning records SBC pruning metrics.
+func (c *Collector) RecordSBCPruning(mode, pressure string, original, selected, tokensSaved int, duration time.Duration) {
+	if !c.enabled {
+		return
+	}
+	c.sbcToolsOffered.WithLabelValues(mode, pressure).Set(float64(original))
+	c.sbcToolsSelected.WithLabelValues(mode, pressure).Set(float64(selected))
+	c.sbcTokensSaved.WithLabelValues(mode).Add(float64(tokensSaved))
+	c.sbcPruneDuration.WithLabelValues(mode).Observe(duration.Seconds())
+}
+
+// RecordSBCFallback records an SBC fallback trigger.
+func (c *Collector) RecordSBCFallback(mode string) {
+	if !c.enabled {
+		return
+	}
+	c.sbcFallbackTriggers.WithLabelValues(mode).Inc()
 }
 
 func (c *Collector) RecordKMSOperation(operation, status string) {

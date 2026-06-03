@@ -286,7 +286,19 @@ type MCPConfig struct {
 	MaxResultBytes       int               `yaml:"max_result_bytes"`
 	AutoInjectTools      bool              `yaml:"auto_inject_tools"`
 	ToolConflictStrategy string            `yaml:"tool_conflict_strategy"`
+	SBC                  SBCConfig         `yaml:"sbc"`
 	Servers              []MCPServerConfig `yaml:"servers"`
+}
+
+// SBCConfig configures Schema-Budget Coupling for MCP tool explosion.
+// When enabled, SBC ranks tools by relevance and prunes low-value ones
+// based on TPM headroom, reducing token consumption for large tool catalogs.
+type SBCConfig struct {
+	Enabled      bool   `yaml:"enabled"`  // master switch (default: false)
+	Mode         string `yaml:"mode"`     // "off", "hybrid", "evict" (default: "off")
+	BudgetTokens int    `yaml:"budget_tokens"` // context window budget for headroom calc (default: 32000)
+	MinTools     int    `yaml:"min_tools"` // never prune below this count (default: 8)
+	Fallback     bool   `yaml:"fallback"`  // enable fallback heuristic: retry with all tools on text-only early turns (default: false)
 }
 
 // MCPServerConfig configures a single MCP server connection.

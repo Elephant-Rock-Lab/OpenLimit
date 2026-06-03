@@ -22,6 +22,7 @@ import (
 	"openlimit/internal/health"
 	"openlimit/internal/mcp"
 	"openlimit/internal/metrics"
+	"openlimit/internal/sbc"
 	"openlimit/internal/providers"
 	"openlimit/internal/ratelimit"
 	rediscli "openlimit/internal/redis"
@@ -171,6 +172,51 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 				mergedJSON, _ := json.Marshal(mcpMergeResult.Tools)
 				req.Tools = mergedJSON
 			}
+		}
+
+		// SBC: Prune tools based on TPM headroom and policy
+		if h.cfg.MCP.SBC.Enabled && len(req.Tools) > 0 {
+			sbcResult, sbcErr := h.applySBC(req.Tools, req.ToolChoice, req.Messages, identity)
+			if sbcErr != nil {
+				// Failure = passthrough: log and keep original tools
+				h.logger.Warn("SBC pruning failed, using all tools",
+					"error", sbcErr,
+				)
+			} else if sbcResult.Pruned > 0 {
+				prunedJSON, _ := json.Marshal(sbcResult.Tools)
+				req.Tools = prunedJSON
+				h.logger.Info("SBC pruned tools",
+					"original", sbcResult.Original,
+					"pruned", sbcResult.Pruned,
+					"remaining", len(sbcResult.Tools),
+					"pressure", string(sbcResult.Pressure),
+					"mode", string(sbcResult.Mode),
+					"bytes_saved", sbcResult.TokenSave,
+				)
+			}
+		}
+	}
+
+	// SBC: Prune tools when no MCP registry (caller-sent tools only)
+	// This handles the case where the caller sends many tools directly
+	// without MCP being involved.
+	if h.cfg.MCP.SBC.Enabled && h.mcpRegistry == nil && len(req.Tools) > 0 {
+		sbcResult, sbcErr := h.applySBC(req.Tools, req.ToolChoice, req.Messages, identity)
+		if sbcErr != nil {
+			h.logger.Warn("SBC pruning failed, using all tools",
+				"error", sbcErr,
+			)
+		} else if sbcResult.Pruned > 0 {
+			prunedJSON, _ := json.Marshal(sbcResult.Tools)
+			req.Tools = prunedJSON
+			h.logger.Info("SBC pruned tools (no MCP)",
+				"original", sbcResult.Original,
+				"pruned", sbcResult.Pruned,
+				"remaining", len(sbcResult.Tools),
+				"pressure", string(sbcResult.Pressure),
+				"mode", string(sbcResult.Mode),
+				"bytes_saved", sbcResult.TokenSave,
+			)
 		}
 	}
 
@@ -867,6 +913,81 @@ func extractHTTPStatus(err error) int {
 		return httpErr.StatusCode
 	}
 	return 0
+}
+
+// applySBC applies Schema-Budget Coupling to the tool list.
+// It computes headroom from either the identity's TPM limits or the configured
+// budget_tokens (context window budget), then delegates to sbc.PruneTools.
+func (h *Handler) applySBC(tools json.RawMessage, toolChoice json.RawMessage, messages []openaischema.ChatMessage, identity *GovernanceIdentity) (*sbc.PruneResult, error) {
+	// Build the SBC policy from config
+	minTools := h.cfg.MCP.SBC.MinTools
+	if minTools <= 0 {
+		minTools = 8
+	}
+	policy := sbc.RuntimePolicy{
+		Enabled:  h.cfg.MCP.SBC.Enabled,
+		Mode:     sbc.ParsePolicyMode(h.cfg.MCP.SBC.Mode),
+		MinTools: minTools,
+	}
+
+	// Parse tools from JSON
+	var toolList []json.RawMessage
+	if err := json.Unmarshal(tools, &toolList); err != nil {
+		return nil, fmt.Errorf("sbc: parse tools: %w", err)
+	}
+
+	// Compute headroom — prefer budget_tokens (context window) over TPM rate limit
+	var headroom float64 = 1.0
+	budgetTokens := h.cfg.MCP.SBC.BudgetTokens
+	if budgetTokens > 0 {
+		// Context window budget: estimate current tool token cost as fraction of budget
+		toolTokens := sbc.EstimateTokenCount(toolList)
+		headroom = sbc.ComputeHeadroom(budgetTokens, toolTokens)
+	} else if identity != nil && identity.TPMLimit > 0 {
+		// Fall back to TPM headroom if no budget_tokens configured
+		limiter := h.getLimiter(identity.VirtualKeyID, identity.RPMLimit, identity.TPMLimit)
+		switch l := limiter.(type) {
+		case interface{ TPMRemaining(string) (int, int, bool) }:
+			if limit, remaining, ok := l.TPMRemaining(identity.VirtualKeyID); ok {
+				headroom = sbc.ComputeHeadroom(limit, limit-remaining)
+			}
+		}
+	}
+
+	// Extract last user message for relevance scoring
+	query := ""
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == "user" {
+			content := string(messages[i].Content)
+			if len(content) >= 2 && content[0] == '"' && content[len(content)-1] == '"' {
+				content = content[1 : len(content)-1]
+			}
+			query = content
+			break
+		}
+	}
+
+	result, err := sbc.PruneTools(toolList, toolChoice, query, headroom, policy)
+	if err != nil {
+		return nil, fmt.Errorf("sbc: prune: %w", err)
+	}
+
+	// Record metrics
+	sbc.RecordPruning(result)
+
+	// Record Prometheus metrics directly
+	if h.metrics != nil {
+		h.metrics.RecordSBCPruning(
+			string(result.Mode),
+			string(result.Pressure),
+			result.Original,
+			len(result.Tools),
+			result.TokenSave,
+			result.Duration,
+		)
+	}
+
+	return result, nil
 }
 
 // extractChoiceContent extracts text content from a chat completion response.
