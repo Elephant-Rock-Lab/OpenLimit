@@ -36,7 +36,7 @@ providers:
     base_url: https://api.z.ai/api/coding/paas/v4
     keys:
       - id: zai-primary
-        value: "35e458e6edbd438faf6ba5ed6a60bda0.OSEmiuOO9skbiKjt"
+        value: "YOUR_ZAI_API_KEY_HERE"
         weight: 100
 
   ollama:
