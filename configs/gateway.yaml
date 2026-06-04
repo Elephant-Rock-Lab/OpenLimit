@@ -31,18 +31,12 @@ routing:
         - server_error
 
 providers:
-  openai:
-    type: openai
+  zai:
+    type: openai-compatible
+    base_url: https://api.z.ai/api/coding/paas/v4
     keys:
-      - id: openai-primary
-        env: OPENAI_API_KEY
-        weight: 100
-
-  anthropic:
-    type: anthropic
-    keys:
-      - id: anthropic-primary
-        env: ANTHROPIC_API_KEY
+      - id: zai-primary
+        value: "35e458e6edbd438faf6ba5ed6a60bda0.OSEmiuOO9skbiKjt"
         weight: 100
 
   ollama:
@@ -54,21 +48,10 @@ providers:
         weight: 100
 
 models:
-  fast:
+  glm-5.1:
     routes:
-      - provider: openai
-        model: gpt-4o-mini
-        weight: 100
-    fallbacks:
-      - provider: anthropic
-        model: claude-3-5-haiku-latest
-      - provider: ollama
-        model: llama3.1
-
-  claude:
-    routes:
-      - provider: anthropic
-        model: claude-3-5-haiku-latest
+      - provider: zai
+        model: glm-5.1
         weight: 100
 
   local:
@@ -82,7 +65,7 @@ models:
 mcp:
   sbc:
     enabled: false
-    mode: "off"           # "off" | "hybrid" | "evict"
-    budget_tokens: 32000  # context window budget (0 = use TPM headroom)
-    min_tools: 8          # never prune below this count
-    fallback: false       # retry with all tools on text-only early turns
+    mode: "off"
+    budget_tokens: 32000
+    min_tools: 8
+    fallback: false
